@@ -1378,7 +1378,7 @@ cp hog.yaml hog2.yaml
 
 we then change the namespace and delete any selflink found
 ```yaml
-kind: Deployment
+kind: Deployment # kind specifies the type of Kubernetes resource, such as Deployment, Service, Pod, etc.
 metadata:
   annotations:
     deployment.kubernetes.io/revision: "1"
@@ -1946,3 +1946,629 @@ curl https://k8scp:6443/api/v1/namespaces --header "Authorization: Bearer $token
 
 As you can we do not have the authorization to manage this. (missing RBAC to list namespace).
 
+We can also interact with the Kubernetes API using a proxy. The proxy can be initiated from a node or within a pod. When running within a pod, this is often achieved through the use of a sidecar container, which acts as an intermediary to facilitate API communication. This approach is particularly useful for debugging or securely accessing the API server without exposing it directly.
+
+```sh
+k proxy -h
+k proxy --api-prefix=/ &
+[1] 3820489
+Starting to serve on 127.0.0.1:8001
+```
+
+curl through proxy
+```sh
+curl http://127.0.0.1:8001/api
+```
+
+curl namespaces
+```sh
+curl http://127.0.0.1:8001/api/v1/namespaces
+```
+
+----
+Jobs example
+----
+
+we will create a simple job: 
+
+cp /home/omarbistami/LFCourse/LFS258/SOLUTIONS/s_06/job.yaml .
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sleepy
+spec:
+  template:
+    spec:
+      containers:
+      - name: resting
+        image: busybox
+        command: ["/bin/sleep"]
+        args: ["3"]
+      restartPolicy: Never
+```
+
+```sh
+kubectl create -f job.yaml
+kubectl get job
+kubectl describe job sleepy
+kubectl delete job sleepy
+```
+
+now we modify the job and add completion param.
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sleepy
+spec:
+  completions: 5
+  template:
+    spec:
+      containers:
+      - name: resting
+        image: busybox
+        command: ["/bin/sleep"]
+        args: ["3"]
+      restartPolicy: Never
+```
+
+```sh
+k get job
+NAME     STATUS    COMPLETIONS   DURATION   AGE
+sleepy   Running   4/5           31s        31s
+
+k get pod
+NAME           READY   STATUS      RESTARTS   AGE
+sleepy-2jch6   0/1     Completed   0          34s
+sleepy-96glk   0/1     Completed   0          26s
+sleepy-rsjvg   0/1     Completed   0          19s
+sleepy-t2679   1/1     Running     0          5s
+sleepy-x2bjl   0/1     Completed   0          12s
+
+k delete pod sleepy
+```
+
+we can also add parallelism :
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sleepy
+spec:
+  completions: 5
+  parallelism: 2
+  template:
+    spec:
+      containers:
+      - name: resting
+        image: busybox
+        command: ["/bin/sleep"]
+        args: ["3"]
+      restartPolicy: Never
+```
+
+jobs will run pods in parallel :
+
+```sh
+NAME           READY   STATUS      RESTARTS   AGE
+sleepy-6grs2   0/1     Completed   0          12s
+sleepy-lbh45   1/1     Running     0          4s
+sleepy-qc2xn   1/1     Running     0          4s
+sleepy-wdh9m   0/1     Completed   0          12s
+```
+
+We now add activeDeadlineSeconds which determine the time limit for the job and all his completions to finish, else k8s, will stop the job and the rest of the completions and will show job as failed:
+
+```yaml
+spec:
+  completions: 5
+  parallelism: 2
+  activeDeadlineSeconds: 15
+  template:
+    spec:
+      containers:
+        - name: resting
+          image: busybox
+          command: ["/bin/sleep"]
+          args: ["5"]
+      restartPolicy: Never
+```
+
+after creation the job its stops at 2/5 because we exceeded the time :
+
+```sh
+k get job
+NAME     STATUS    COMPLETIONS   DURATION   AGE
+sleepy   Running   2/5           14s        14s
+```
+
+we can see more info :
+```sh
+k get job sleepy -o yaml
+.....
+status:
+  conditions:
+  - lastProbeTime: "2025-04-15T20:02:37Z"
+    lastTransitionTime: "2025-04-15T20:02:37Z"
+    message: Job was active longer than specified deadline
+    reason: DeadlineExceeded
+    status: "True"
+    type: FailureTarget
+  - lastProbeTime: "2025-04-15T20:02:40Z"
+    lastTransitionTime: "2025-04-15T20:02:40Z"
+    message: Job was active longer than specified deadline
+    reason: DeadlineExceeded
+    status: "True"
+    type: Failed
+  failed: 2
+  ready: 0
+  startTime: "2025-04-15T20:02:22Z"
+  succeeded: 2
+
+k describe job sleepy
+.....
+ Type     Reason            Age    From            Message
+  ----     ------            ----   ----            -------
+  Normal   SuccessfulCreate  2m17s  job-controller  Created pod: sleepy-p57nt
+  Normal   SuccessfulCreate  2m17s  job-controller  Created pod: sleepy-bstls
+  Normal   SuccessfulCreate  2m7s   job-controller  Created pod: sleepy-p8tm8
+  Normal   SuccessfulCreate  2m6s   job-controller  Created pod: sleepy-rbwd8
+  Normal   SuccessfulDelete  2m2s   job-controller  Deleted pod: sleepy-p8tm8
+  Normal   SuccessfulDelete  2m2s   job-controller  Deleted pod: sleepy-rbwd8
+  Warning  DeadlineExceeded  119s   job-controller  Job was active longer than specified deadline
+```
+
+now we will create a cronjob whom will use linux style cronjob syntaxe and each time he need to run will create a job
+```yaml
+kind: CronJob
+metadata:
+  name: sleepy
+spec:
+  schedule: "*/2 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: resting
+            image: busybox
+            command: ["/bin/sleep"]
+            args: ["5"]
+          restartPolicy: Never
+```
+```sh
+k get cronjob
+NAME     SCHEDULE      TIMEZONE   SUSPEND   ACTIVE   LAST SCHEDULE   AGE
+sleepy   */2 * * * *   <none>     False     0        19s             4m20s
+
+k get job
+NAME              STATUS     COMPLETIONS   DURATION   AGE
+sleepy-29079776   Complete   1/1           9s         4m45s
+sleepy-29079778   Complete   1/1           9s         2m45s
+sleepy-29079780   Complete   1/1           9s         45s
+```
+
+we then add `activeDeadlineSeconds: 10` and set the sleep to 30 to check the fail
+
+```yaml
+spec:
+  schedule: "*/2 * * * *"
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 10
+      template:
+        spec:
+          containers:
+            - name: resting
+              image: busybox
+              command: ["/bin/sleep"]
+              args: ["30"]
+          restartPolicy: Never
+```
+```sh
+k get cronjob
+NAME     SCHEDULE      TIMEZONE   SUSPEND   ACTIVE   LAST SCHEDULE   AGE
+sleepy   */2 * * * *   <none>     False     0        <none>          7s
+
+k get job
+NAME              STATUS   COMPLETIONS   DURATION   AGE
+sleepy-29079834   Failed   0/1           106s       106s
+
+k get cronjob
+NAME     SCHEDULE      TIMEZONE   SUSPEND   ACTIVE   LAST SCHEDULE   AGE
+sleepy   */2 * * * *   <none>     False     1        33s             6m50s
+
+k describe sleepy-29079834
+...
+Events:
+  Type     Reason            Age   From            Message
+  ----     ------            ----  ----            -------
+  Normal   SuccessfulCreate  74s   job-controller  Created pod: sleepy-29079834-cvnsw
+  Normal   SuccessfulDelete  64s   job-controller  Deleted pod: sleepy-29079834-cvnsw
+  Warning  DeadlineExceeded  41s   job-controller  Job was active longer than specified deadline
+```
+
+
+----
+DEPLOYEMENT
+____
+
+Deployments are YAML files that define the deployment of pods. They include configurations for controllers that manage ReplicaSets, which in turn manage the pods.
+
+Deployments also manage pod updates, either through a block update (replacing all pods at once) or a rolling update (replacing pods one by one). This allows for rollbacks, as older ReplicaSets are retained.
+
+Labels are used to target specific resources. For example, a 'PROD' label can be used to target all resources in the production environment.
+
+deployement YAML/Manifest composition:
+
+```yaml
+# Note: `apiVersion: v1` is used for the list object, while `apps/v1` is used for individual deployment objects.
+apiVersion: v1
+kind: List
+items:
+- apiVersion: apps/v1
+  kind: Deployment
+```
+- `apiVersion: v1` specifies the API version for the list object, which is used to group multiple Kubernetes resources.
+- `kind: List` indicates that this YAML file contains a collection of Kubernetes objects.
+- `items` is the key that holds the list of Kubernetes objects, such as deployments, services, and other resources.
+- `apiVersion: apps/v1` is the stable API version for managing deployment objects in Kubernetes.
+- `kind: Deployment` specifies that the object is a deployment.
+
+This structure allows you to define and manage multiple resources in a single YAML file.
+
+in the next par we have the metadata:
+```yaml
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "1" # Tracks the revision history of the deployment
+  creationTimestamp: 2024-10-21T13:57:07Z # Indicates when the deployment was created
+  generation: 1 # Represents the generation of the deployment, incremented with changes
+  labels:
+    app: dev-web # Identifies the deployment with a key-value pair for selection
+  name: dev-web # Specifies the unique name of the deployment
+  namespace: default # Defines the namespace where the deployment resides
+  resourceVersion: "774003" # Tracks the version of the deployment for concurrency control
+  uid: d52d3a63-e656-11e7-9319-42010a800003 # Unique identifier for the deployment
+```
+
+```yaml
+spec:                                   # delecation that the following item will configure the object to be created
+  replicas: 1                           # Number of desired pod replicas
+  selector:                             # Determines which pods are managed by this deployment.
+    matchLabels:
+      app: dev-web                      # Selects pods with this label
+  strategy:                             # Defines how updates are performed (e.g., rolling updates).    
+    type: RollingUpdate                 # Use rolling updates for deployments
+    rollingUpdate:
+      maxSurge: 25%                     # Up to 25% more pods than desired during update => if i have 10 => will have 12 during update
+      maxUnavailable: 25%               # Up to 25% of pods can be unavailable during update
+  revisionHistoryLimit: 10              # Number of old ReplicaSets to retain for rollback 
+  progressDeadlineSeconds: 600          # Time (in seconds) to wait for progress before marking deployment as failed
+```
+**Key fields explained:**
+- `revisionHistoryLimit`: Limits how many previous ReplicaSets are kept for rollback.
+- `progressDeadlineSeconds`: Fails the deployment if progress stalls for this duration.
+
+
+
+```yaml
+template:                                   # Pod template for the deployment that will be passed to replicaset to deploy the container.
+  metadata:
+    creationTimestamp: null                  # No creation timestamp set for the pod template
+    labels:
+      app: dev-web                          # Label to identify pods created by this template
+  spec:
+    containers:                             # following items are for container
+    - image: nginx:1.17.7-alpine            # Container image to use (nginx version 1.17.7-alpine)
+      imagePullPolicy: IfNotPresent         # Pull image only if not already present on the node
+      name: dev-web                        # Name of the container
+      resources: {}                        # No resource requests or limits specified
+      terminationMessagePath: /dev/termination-log   # Path for container termination messages
+      terminationMessagePolicy: File        # Store termination message as a file
+    dnsPolicy: ClusterFirst                 # Use cluster DNS for pod name resolution (Determines if DNS queries should go to coredns which is the ClusterDNS or, if set to Default, use the node's DNS resolution configuration.)
+    restartPolicy: Always                   # Always restart containers if they exit
+    schedulerName: default-scheduler        # Use the default Kubernetes scheduler
+    securityContext: {}                     # No specific security context set, Flexible setting to pass one or more security settings, such as SELinux context, AppArmor values, users and UIDs for the containers to use.
+    terminationGracePeriodSeconds: 30       # Wait 30 seconds before forcefully terminating the pod
+```
+
+The Status Section:
+```yaml
+status:
+  availableReplicas: 2           # Number of replicas (pods) that are available to serve requests (i.e., ready and minimum availability requirements met).
+  conditions:
+    - lastTransitionTime: "2024-10-21T13:57:07Z"  # The last time the condition transitioned from one status to another.
+      lastUpdateTime: "2024-10-21T13:57:07Z"      # The last time this condition was updated.
+      message: Deployment has minimum availability.  # Human-readable message indicating details about the condition.
+      reason: MinimumReplicasAvailable           # Brief reason for the condition's last transition.
+      status: "True"                            # Status of the condition (True, False, Unknown).
+      type: Available                           # Type of condition: Available means the deployment has enough available replicas.
+    - lastTransitionTime: "2024-10-29T06:00:24Z"
+      lastUpdateTime: "2024-10-29T06:00:33Z"
+      message: ReplicaSet "test-5f6778868d" has successfully progressed. # Indicates the new ReplicaSet is now serving traffic.
+      reason: NewReplicaSetAvailable            # Reason for the condition's last transition.
+      status: "True"
+      type: Progressing                        # Type: Progressing means the deployment is updating pods as expected.
+  observedGeneration: 2                         # Most recent generation observed by the deployment controller (matches .metadata.generation).
+  readyReplicas: 2                             # Number of pods ready to serve requests (passed readiness checks).
+  replicas: 2                                  # Total number of desired pod replicas as specified in the deployment spec.
+  updatedReplicas: 2                           # Number of replicas updated to the latest spec (i.e., running the new pod template).
+```
+**Key fields explained:**
+- `availableReplicas`: Pods available to serve requests (minimum availability met).
+- `readyReplicas`: Pods that have passed readiness checks and are ready to receive traffic.
+- `replicas`: Desired number of pod replicas as defined in the deployment spec.
+- `updatedReplicas`: Pods running the latest deployment spec (after an update/rollout).
+- `observedGeneration`: Tracks which version of the deployment spec the status reflects.
+- `conditions`: List of status conditions for the deployment, such as `Available` and `Progressing`, each with timestamps, reasons, and messages for troubleshooting and monitoring rollout progress.
+This status section provides a quick overview of your deployment's rollout progress, availability, and health.
+
+The API server allow for some configuration to be updated quickly, you can scale your deployment easily with:
+```sh
+kubectl scale deploy/dev-web --replicas=4
+```
+
+But they are some immutable values, that need to edit the object for update, for example, to update the container image (e.g., change the nginx version), edit the deployment:
+```sh
+kubectl edit deployment dev-web
+```
+Then modify the image field:
+```yaml
+containers:
+- image: nginx:1.8  # Update to desired version
+  name: dev-web
+```
+Kubernetes will automatically perform a rolling update when the image changes.
+
+Deployement Rollbacks:
+
+When a Deployment is updated, Kubernetes retains the ReplicaSets from previous versions. This enables easy rollback to an earlier revision. Rollbacks work by scaling up the desired ReplicaSet and scaling down the current one. The number of retained previous ReplicaSets can be configured using the `revisionHistoryLimit` field in the Deployment spec.
+
+```sh
+# Create a new deployment named 'ghost' using the 'ghost' container image
+kubectl create deploy ghost --image=ghost
+
+# Annotate the deployment with a change-cause for better tracking and auditability
+kubectl annotate deployment/ghost kubernetes.io/change-cause="kubectl create deploy ghost --image=ghost"
+
+# Retrieve the full YAML definition of the 'ghost' deployment for inspection or documentation
+kubectl get deployment ghost -o yaml
+```
+```yaml
+deployment.kubernetes.io/revision: "1" 
+kubernetes.io/change-cause: kubectl create deploy ghost --image=ghost
+```
+
+Lets set the wrong image version:
+```sh
+kubectl set image deployement/ghost ghost=ghost:09 --all
+kubectl get pods
+NAME                    READY  STATUS            RESTARTS  AGE
+ghost-2141819201-tcths  0/1    ImagePullBackOff  0         1m​
+```
+To rollback the change :
+```sh
+kubectl rollout undo deployement/ghost
+kubectl get pods
+NAME                    READY  STATUS   RESTARTS  AGE
+ghost-3378155678-eq5i6  1/1    Running  0         7s
+```
+
+To rollout to a specific previous version, you can use : `--to-revision=2 ` or directly edit the deployement manifest.
+
+To pause then resume a deployement:
+```sh
+kubectl rollout pause deployement/ghost
+kubectl rollout resume deployement/ghost
+```
+
+Please note that you can still do a rolling update on ReplicationControllers with the kubectl rolling-update command, but this is done on the client side. Hence, if you close your client, the rolling update will stop:
+
+### Example
+
+Suppose you have a ReplicationController named `my-app` running version 1 of your app. You want to update it to version 2.
+
+You would run:
+```sh
+kubectl rolling-update my-app --image=my-app:v2
+```
+
+- As long as this command is running in your terminal, Kubernetes will gradually replace old pods with new ones.
+- If you close your terminal or lose connection, the update will stop partway through, and you’ll need to restart the process.
+
+**Key point:** Unlike newer Deployment objects (which handle rolling updates on the server side), ReplicationController rolling updates depend on your local `kubectl` session staying active.
+
+-----
+DaemonSets
+-----
+A DaemonSet ensures that exactly one pod runs on each node in the cluster, typically using the same container image. When new nodes join, the DaemonSet automatically schedules a pod on them; when nodes are removed, their pods are cleaned up. This is ideal for deploying system-level services like logging or monitoring agents across all nodes without manual intervention.
+
+There are ways of effecting the kube-scheduler such that some nodes will not run a DaemonSet.
+
+-----
+LABELS
+-----
+Labels are part of metadata and are not standalone API objects. They enable selection and grouping of Kubernetes resources using key-value pairs, regardless of the object type.
+
+As of API version apps/v1, a Deployment's label selector is immutable after it gets created.  
+If you need to change the label selector, you must delete the existing Deployment and create a new one with the desired label selector.
+
+When creating a deployement, k8s by default adds :
+```yaml
+    labels:
+        pod-template-hash: "3378155678"
+        run: ghost ....
+```
+
+to view the labels
+```sh
+kubectl get pods -l run=ghost
+NAME                    READY  STATUS   RESTARTS  AGE
+ghost-3378155678-eq5i6  1/1    Running  0         10m
+```
+```sh
+kubectl get pods -L run
+NAME                    READY  STATUS   RESTARTS  AGE  RUN
+ghost-3378155678-eq5i6  1/1    Running  0         10m  ghost
+nginx-3771699605-4v27e  1/1    Running  1         1h   nginx
+```
+
+In addition to defining labels on pod and deployement templates, you can also add them on the fly:
+
+```sh
+kubectl label pods ghost-3378155678-eq5i6 foo=bar
+```
+```sh
+kubectl get pods --show-labels
+NAME                    READY  STATUS   RESTARTS  AGE  LABELS
+ghost-3378155678-eq5i6  1/1    Running  0         11m  foo=bar, pod-template-hash=3378155678,run=ghost
+```
+
+You can force scheduling **a pod on a specific node** by using `nodeSelector` in the pod definition. The `nodeSelector` matches the specified key-value pair with the labels on nodes, ensuring the pod is scheduled only on nodes that have the matching labels:
+```yaml
+spec:
+    containers:
+    - image: nginx
+    nodeSelector:
+        disktype: ssd
+```
+
+-----
+REPLICASETS TP
+-----
+
+```yaml
+First we create a replicaset :
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: rs-one
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      system: ReplicaOne
+  template:
+    metadata:
+      labels:
+        system: ReplicaOne
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.22.1
+        ports:
+        - containerPort: 80
+```
+
+This will spawn 2 pods:
+
+```sh
+kubectl get rs
+
+NAME     DESIRED   CURRENT   READY   AGE
+rs-one   2         2         0       3s
+```sh
+kubectl describe rs rs-one
+
+NAME           READY   STATUS    RESTARTS   AGE
+rs-one-6kx4x   1/1     Running   0          50s
+rs-one-ljkh9   1/1     Running   0          50s
+```
+```sh
+kubectl describe rs rs-one
+Name:         rs-one
+Namespace:    default
+Selector:     system=ReplicaOne
+Labels:       <none>
+Annotations:  <none>
+Replicas:     2 current / 2 desired
+Pods Status:  2 Running / 0 Waiting / 0 Succeeded / 0 Failed
+Pod Template:
+  Labels:  system=ReplicaOne
+  Containers:
+   nginx:
+    Image:         nginx:1.22.1
+    Port:          80/TCP
+    Host Port:     0/TCP
+    Environment:   <none>
+    Mounts:        <none>
+  Volumes:         <none>
+  Node-Selectors:  <none>
+  Tolerations:     <none>
+Events:
+  Type    Reason            Age   From                   Message
+  ----    ------            ----  ----                   -------
+  Normal  SuccessfulCreate  22s   replicaset-controller  Created pod: rs-one-ljkh9
+  Normal  SuccessfulCreate  22s   replicaset-controller  Created pod: rs-one-6kx4x
+```
+
+We then delete the rs but separte the pod from it using `--cascade=orphan`
+```sh
+kubectl delete rs rs-one --cascade=orphan
+replicaset.apps "rs-one" deleted
+```
+```sh
+kubectl get rs
+No resources found in default namespace.
+```
+```sh
+kubectl get pod
+AME           READY   STATUS    RESTARTS   AGE
+rs-one-ddj78   1/1     Running   0          30s
+rs-one-qr6sv   1/1     Running   0          30s
+```
+
+if we recreate the rs, the pods will be automatically attached to it since they use the Selectors:
+```sh
+kubectl edit pod rs-one-ddj78 -o yaml
+```
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: "2025-04-17T15:29:30Z"
+  generateName: rs-one-
+  labels:
+    system: ReplicaOne #once we recreate the rs, pod will attach using this
+```
+
+now lets edit the labet in one pod :
+```sh
+kubectl edit pod rs-one-ddj78 -o yaml
+```
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: "2025-04-17T15:29:30Z"
+  generateName: rs-one-
+  labels:
+    system: IsolatedPod #once we recreate the rs, pod will attach using this
+```
+
+the rs will create another pod since now we only have one with `system: ReplicaOne`
+```sh
+kubectl get pod -L system
+NAME           READY   STATUS    RESTARTS   AGE     SYSTEM
+rs-one-ddj78   1/1     Running   0          5m45s   IsolatedPod
+rs-one-qr6sv   1/1     Running   0          5m45s   ReplicaOne
+rs-one-zvkdh   1/1     Running   0          29s     ReplicaOne
+```
+
+if we delete the rs, the isolated one stays:
+```sh
+kubectl delete pod rs-one-ddj78
+pod "rs-one-ddj78" deleted
+```
+```sh
+kubectl get pod
+NAME           READY   STATUS    RESTARTS   AGE
+rs-one-ddj78   1/1     Running   0          6m52s
+```
+```sh
+kubectl delete pod rs-one-ddj78
+pod "rs-one-ddj78" deleted
+```
