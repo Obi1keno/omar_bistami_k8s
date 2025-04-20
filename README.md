@@ -1,38 +1,39 @@
 # LFOmar
+
 my LF project doc
 
 ----
+
 Installaion of kube explained
 ----
 
 **Using google Kubernetes Engine GKE**
 
 ```sh
-$ gcloud container clusters create linuxfoundation
-$ gcloud container clusters list
-$ kubectl get nodes`
+gcloud container clusters create linuxfoundation
+gcloud container clusters list
+kubectl get nodes`
 ```
 
-delete: 
+delete:
 
 `$ gcloud container clusters delete linuxfoundation`
 
 **Using minikube**
 
 ```sh
-$ curl -Lo minikube ht‌tps://storage.googleapis.com/minikube/releases/latest/minikube-darwin-amd64
-$ chmod +x minikube
-$ sudo mv minikube /usr/local/bin
-$ minikube start
-$ kubectl get nodes
+curl -Lo minikube ht‌tps://storage.googleapis.com/minikube/releases/latest/minikube-darwin-amd64
+chmod +x minikube
+sudo mv minikube /usr/local/bin
+minikube start
+kubectl get nodes
 ```
-
 
 **Using kubeadm**
 
 ```sh
-$ kubeadm init
-$ kubeadm join
+kubeadm init
+kubeadm join
 ```
 
 upgrade using **kubeadm**
@@ -46,25 +47,29 @@ upgrade using **kubeadm**
 
 **Installation tools** : kubeSpray (Ansible), kops (installation on cloud providers), kind (run local k8s)
 
-
 ----
+
 Control plan installation
 ----
 
 Installation:
+
 ```sh
 apt-update && apt-upgrade -y
 apt install apt-transport-https software-properties-common ca-certificates socat -y
 ```
+
 ```sh
 swapoff -a /disable swap by default disable on cloud providers
 ```
+
 ```sh
 modprobe overlay
 modprobe br_netfilter /ensute module are loaded
 ```
 
 update kernel network to allow traffic
+
 ```sh
 root@cp:~# cat << EOF | tee /etc/sysctl.d/kubernetes.conf
 > net.bridge.bridge-nf-call-ip6tables = 1
@@ -74,9 +79,11 @@ root@cp:~# cat << EOF | tee /etc/sysctl.d/kubernetes.conf
 ```
 
 to check:
+
 ```sh
 root@cp: ̃# sysctl --system
 ```
+
 ```sh
 mkdir -p /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
@@ -87,6 +94,7 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 ```
 
 installing containerd
+
 ```sh
 apt-get update && apt-get install containerd.io -y
 containerd config default | tee /etc/containerd/config.toml
@@ -97,9 +105,11 @@ history
 ```
 
 public signing key for k8s
+
 ```sh
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 ```
+
 This command downloads and saves a GPG key for verifying Kubernetes packages:
 
 1. **`curl -fsSL`**: Fetches the file silently and fails gracefully if there's an error.
@@ -111,35 +121,47 @@ This ensures secure package verification when installing Kubernetes.
 ```sh
 echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
 ```
+
 installing kubeadm kubelet and kubectl
+
 ```sh
 apt-get install -y kubeadm=1.31.1-1.1 kubelet=1.31.1-1.1 kubectl=1.31.1-1.1
 ```
+
 hold to preven auto update
+
 ```sh
 apt-mark hold kubeadm kubelet kubectl
 ```
+
 get the primary interface of the cp server
+
 ```sh
 ip addr show
 hostname -i
 ```
 
 add local dns for cp server
+
 ```sh
 10.2.0.2 k8scp
 10.2.0.2 cp
 ```
+
 copy the config file to /root
+
 ```sh
 cp /home/omarbistami/LSCourse/LFS258/SOLUTIONS/s_03/kubeadm-config.yaml /root/
 ```
+
 i had to enable ip forwarding
+
 ```sh
 cat /proc/sys/net/ipv4/ip_forward
 vim /etc/sysctl.conf
 sudo sysctl -p
 ```
+
 then kubeadm init
 
 ```sh
@@ -168,8 +190,8 @@ Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
 You can now join any number of the control-plane node running the following command on each as root:
 
   kubeadm join k8scp:6443 --token et2s1y.8dmwmbewust6k32v \
-	--discovery-token-ca-cert-hash sha256:193ebc0443f39aba7e7e84be356a5047a64fa28fd01702a52aad534c2323ab19 \
-	--control-plane --certificate-key 10bd1330be0d7800b333b61e28e47eb1bca6ac279160fddbcfd54922f50de53a
+ --discovery-token-ca-cert-hash sha256:193ebc0443f39aba7e7e84be356a5047a64fa28fd01702a52aad534c2323ab19 \
+ --control-plane --certificate-key 10bd1330be0d7800b333b61e28e47eb1bca6ac279160fddbcfd54922f50de53a
 
 Please note that the certificate-key gives access to cluster sensitive data, keep it secret!
 As a safeguard, uploaded-certs will be deleted in two hours; If necessary, you can use
@@ -178,15 +200,15 @@ As a safeguard, uploaded-certs will be deleted in two hours; If necessary, you c
 Then you can join any number of worker nodes by running the following on each as root:
 
 kubeadm join k8scp:6443 --token et2s1y.8dmwmbewust6k32v \
-	--discovery-token-ca-cert-hash sha256:193ebc0443f39aba7e7e84be356a5047a64fa28fd01702a52aad534c2323ab19
+ --discovery-token-ca-cert-hash sha256:193ebc0443f39aba7e7e84be356a5047a64fa28fd01702a52aad534c2323ab19
 ```
 
 ----
+
 access cluster with non root user
 ----
 
-providing a non root user to access the cluster 
-
+providing a non root user to access the cluster
 
 ```sh
 mkdir -p .kube
@@ -198,11 +220,11 @@ history | cut -c 8-
 ```
 
 ----
+
 Helm installation
 ----
 
 installing helm
-
 
 ```sh
 curl https://baltocdn.com/helm/signing.asc | apt-key add -
@@ -214,7 +236,6 @@ apt-get update
 apt-get install helm
 helm version
 ```
-
 
 switching to root and setting the config again:
 
@@ -228,8 +249,7 @@ apply manifest of cilium in course :
 kubectl apply -f /home/omarbistami/LSCourse/LFS258/SOLUTIONS/s_03/cilium-cni.yaml
 ```
 
-setting up auto completion for bash and kubectl 
-
+setting up auto completion for bash and kubectl
 
 ```sh
 apt-get install bash-completion -y
@@ -243,9 +263,7 @@ show all kubeadm init option :
 kubeadm config print init-default
 ```
 
-
 Generate join command from CP :
-
 
 ```sh
 kubeadm token create --print-join-command
@@ -253,11 +271,11 @@ kubeadm join k8scp:6443 --token kxtgio.ztr2bsvmus9inm7p --discovery-token-ca-cer
 ```
 
 ----
+
 Worker Installation
 ----
 
 configuring worker node:
-
 
 ```sh
 exit
@@ -339,9 +357,9 @@ crictl config --set runtime-endpoint=unix://run/containerd/containerd.sock
 ```
 
 ----
+
 events
 ----
-
 
 Getting events (chronological order not respected)
 
@@ -350,6 +368,7 @@ kubectl get events
 ```
 
 ----
+
 Deploying app and exposing it
 ----
 
@@ -376,6 +395,7 @@ kubectl expose deployment/nginx
 ```
 
 create, apply, edit and patch manifest yaml files:
+
 - **Create**: Used to create a new object. Typically used once.
 - **Apply**: Combines the functionality of `create` and allows modifications to existing objects.
 - **Edit**: Opens the object in an editor for manual modifications.
@@ -438,6 +458,7 @@ first think we do is print env var inside pod
 ```sh
 kubectl exec nginx-7769f8f85b-6drhz -- printenv | grep KUBERNETES
 ```
+
 we then delete and expose again using type.
 
 ```sh
@@ -453,24 +474,28 @@ kubernetes   ClusterIP      10.96.0.1       <none>        443/TCP        5d20h
 nginx        LoadBalancer   10.109.61.198   <pending>     80:32257/TCP   15m
 ```
 
-using in navigator : http://34.155.199.133:32257
+using in navigator : <http://34.155.199.133:32257>
 
 if we scale to zero , not working anymore
+
 ```sh
 k scale deploy nginx --replicas=0
 ```
+
 if delete the deploy, the pod will be delete but svc still up and creating the deploy again, we have access again
+
 ```sh
 k delete deploy nginx
 ```
+
 we need to delete also the svc
 
 ```sh
 k delete svc nginx
 ```
 
-
 ----
+
 K8S Concepts
 ----
 
@@ -501,12 +526,11 @@ The main components of Kubernetes architecture are:
 
 For cluster-wide logging, Fluentd is commonly used, and Prometheus is utilized for metrics collection.
 
-
 **Fluentd** to add unified logging Layer for the cluster for cluster wide logging
 
 For cluster wide metrics, we use **prometheus**
 
-**Kubelet role** : communicate with container engine 
+**Kubelet role** : communicate with container engine
 
 1. **Pod Management**: The Kubelet watches for Pod specifications (manifests) assigned to its node and ensures the containers in those Pods are running.
 2. **Health Monitoring**: It monitors the health of the containers and restarts them if they fail, based on the Pod's restart policy.
@@ -534,7 +558,7 @@ Also can manage topology manager for NUMA architecture.
 
 Operators are specialized controllers or watch loops that act as agents, watchers, or informers, leveraging a downstream store with a deltaFIFO queue to manage the state of Kubernetes objects. SharedOperators, also known as informers, are designed to manage objects that are utilized by multiple components, ensuring efficient and consistent state management across the cluster.
 
-Endpoints, namespaces, and service accounts each manage their respective resources for Pods. 
+Endpoints, namespaces, and service accounts each manage their respective resources for Pods.
 The Deployment operator oversees ReplicaSets, which in turn manage Pods running identical Pod specifications (PodSpecs) or replicas.
 
 The Service Operator monitors the Endpoint Operator to ensure persistent IP allocation for Pods. It communicates updates through the Kubernetes API to all kube-proxy instances and the Cilium add-on across worker nodes in the cluster, facilitating seamless networking and service discovery.
@@ -545,6 +569,7 @@ Service Operator :
 - Expose pods to internet
 - Decouple settings
 - Define pod access policy
+
 ### Pod: The Smallest Unit in Kubernetes
 
 A **Pod** is the smallest deployable unit in Kubernetes, encapsulating one or more containers that share the same network namespace and storage. Key points:
@@ -556,6 +581,7 @@ A **Pod** is the smallest deployable unit in Kubernetes, encapsulating one or mo
 Pods ensure shared lifecycle, network, and storage for tightly coupled containers.
 
 ----
+
 Resource quotas
 ----
 
@@ -591,6 +617,7 @@ livenessProbe:
   initialDelaySeconds: 3
   periodSeconds: 5
 ```
+
 ReadinessProbes Socket example:
 
 ```yaml
@@ -600,6 +627,7 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
 ```
+
 livenessProbe command example:
 
 ```yaml
@@ -611,7 +639,6 @@ livenessProbe:
   initialDelaySeconds: 3
   periodSeconds: 5
 ```
-
 
 InitContainers can have a different view on Storage and Security settings which can allows utilites and commands to be used , which the app containers cannot use, it also have independent security from other app containers.
 
@@ -628,6 +655,7 @@ spec:
 ```
 
 ----
+
 Node Management
 ----
 
@@ -641,16 +669,19 @@ kubectl delete node node_name
 ```
 
 all pod will be evacueted , you can then use To remote cluster informations:
+
 ```sh
 kubeadm reset 
 ```
 
 will show all information related to the node including CPU/Memory and other ressource usage.
+
 ```sh
 kubectl describe node
 ```
 
 ----
+
 Networking
 ----
 
@@ -682,11 +713,12 @@ kube-proxy, a core component of Kubernetes, is deployed on each worker node. Its
 
 CoreDNS handles DNS resolution within the cluster. If the IP range is `10.96.0.0/16`, CoreDNS will be accessible at `10.96.0.10` on each worker node. It enables services to be resolved using DNS names instead of IP addresses, such as `mydb.some-ns.svc.cluster.local`.
 
-
 All pod will have on their /etc/resolv.conf:
+
 ```c
 nameserver 10.96.0.10
 ```
+
 So the pods will have a DNS server to interogate.
 
 Network Policies are basically firewall rules on your nodes to controll trafic.
@@ -696,7 +728,6 @@ Ingress controller and Gateway API controllers manages pods that will do more co
 All containers within a Pod share the same IP address and network namespace. This shared network namespace is managed by a special "pause" container, which acts as the parent container for the Pod. The pause container is responsible for holding the network namespace and ensuring that all other containers in the Pod can communicate seamlessly using the same IP address.
 
 ![Pause Container Role](pausecontainer.png)
-
 
 To communicate with each other, pods can utilize the following methods:
 
@@ -710,7 +741,7 @@ Additionally, Services handle load balancing across Pod replicas, distributing t
 
 Services also manage traffic both within the cluster and from external sources, ensuring seamless connectivity and accessibility.
 
-The default service type in Kubernetes is **ClusterIP**. 
+The default service type in Kubernetes is **ClusterIP**.
 A service uses a **Selector** to identify the appropriate Pods it should route traffic to. It then uses the **TargetPort** to direct traffic to the correct port on the selected Pods.
 
 ![Kubernetes Service Types](https://kubernetes.io/images/docs/services-overview.svg)
@@ -764,6 +795,7 @@ spec:
       port: 3400
       targetPort: 9000
 ```
+
 Pod :
 
 ```yaml
@@ -782,7 +814,6 @@ spec:
 A **headless service** is used when you need to communicate directly with specific Pods rather than relying on load balancing or random selection. This is particularly useful for stateful applications like databases (e.g., MongoDB, MySQL) where Pods are not identical and may have distinct roles (e.g., master, slave).
 
 To create a headless service, set the `clusterIP` field to `None` in the service specification:
-
 
 ```yaml
 apiVersion: v1
@@ -819,7 +850,7 @@ spec:
       nodePort: 30008 (#node port range 30000-32767)
 ```
 
-Services handle requests across nodes, ensuring seamless communication regardless of pod location. 
+Services handle requests across nodes, ensuring seamless communication regardless of pod location.
 
 NodePort is simple and often used for testing, it is not recommended for production due to security concerns.
 
@@ -841,7 +872,6 @@ The LoadBalancer manages traffic by directing requests to the appropriate nodes 
 
 **NodePort Range**: The NodePort service type uses a port range of `30000-32767` for external access.
 
-
 LoadBalancer builds upon NodePort, which in turn extends the functionality of ClusterIP. Each type adds additional capabilities for exposing services, with LoadBalancer providing external access through a cloud provider's load balancer.
 
 Ingress enables external access to the application with SSL/TLS encryption, while keeping the service internal for enhanced security.
@@ -861,7 +891,7 @@ spec:
 Ingress forward to ClusterIP service type (no nodePort)
 
 First step is to install an ingressController which will do the processing of the rules, manages redirections and will be the entry point for the clusters.
-In a cloud environment, the cloud provider's load balancer acts as the entry point, redirecting traffic to the ingress controller (Layer 7). 
+In a cloud environment, the cloud provider's load balancer acts as the entry point, redirecting traffic to the ingress controller (Layer 7).
 
 On bare-metal infrastructure (self-managed), you must handle this functionality manually, often by configuring a load balancer or proxy server to route traffic to the ingress controller.
 
@@ -911,6 +941,7 @@ spec:
 ```
 
 secret:
+
 ```yaml
 kind: Secret
 metadata:
@@ -928,11 +959,12 @@ type: kubernetes.io/tls
 - **Service IPs**: Assigned by the Kubernetes API Server.
 - **Node IPs**: Assigned by the Kubelet or the Cloud Controller Manager, depending on the environment.
 
-
 ### CRI: Container Runtime Interface
+
 The **Container Runtime Interface (CRI)** is the API layer that Kubernetes uses to communicate with container runtimes. It abstracts the underlying container engine, enabling Kubernetes to manage containers seamlessly, regardless of the runtime being used (e.g., containerd, CRI-O, Docker).
 
 ### CNI: Container Network Interface
+
 The **Container Network Interface (CNI)** is a specification and a set of libraries designed to manage container networking. It provides a standard framework for writing plugins that configure network interfaces for containers. The CNI specification is language-agnostic, ensuring flexibility and compatibility across different environments and programming languages.
 
 example of CNI:
@@ -963,7 +995,6 @@ A CNI plugin can assign an IP address to a single Pod, but it does not inherentl
 - All nodes must be able to communicate with all Pods.
 - No Network Address Translation (NAT) should be required for communication.
 
-  
 All Node and Pod IPs must be routable without NAT. This can be achieved via physical network configuration, GKE (Google Kubernetes Engine), or software-defined overlays like:
 
 - Cilium
@@ -987,9 +1018,11 @@ ETC Quorum or ZooKeeper Quorum, is the minmum numbers of nodes in a distrubuted 
 In Kubernetes etcd, the quorum plays a critical role in ensuring leader election and maintaining data consistency. To achieve consensus, a majority of nodes, calculated as (N/2) + 1, must be operational. For example, in a 5-node etcd cluster, at least 3 nodes must be available to uphold leader election and ensure consistent data replication.
 
 ----
+
 # Node management
 
 ----
+
 etcd management
 ----
 
@@ -1000,37 +1033,47 @@ grep data-dir /etc/kubernetes/manifests/etcd.yaml
 ```
 
 exec into the pod of etc in kube-system
+
 ```sh
 kubectl -n kube-system exec -it etcd-cp -- sh
 ```
+
 inside we can check help for etcdctl
+
 ```sh
 etcdctl -h
 ```
+
 all cert needed for command execution are inside :
+
 ```sh
 cd /etc/kubernetes/pki/etcd/
 echo * 
 ca.crt ca.key healthcheck-client.crt healthcheck-client.key peer.crt peer.key server.crt server.key
 ```
+
 since the container image of etcd is being as small as possible it is hard to work direclty inside the container, thus we will export some env variable and work as follow :
 
 checking health :
+
 ```sh
 kubectl -n kube-system exec -it etcd-cp -- sh -c "ETCDCTL_API=3 ETCDCTL_CACERT=/etc/kubernetes/pki/etcd/ca.crt ETCDCTL_CERT=/etc/kubernetes/pki/etcd/server.crt ETCDCTL_KEY=/etc/kubernetes/pki/etcd/server.key etcdctl endpoint health"
 ```
 
 checking quorum (we only have 1 node for the lab, normalement it should be 3 or 5 in prod)
+
 ```sh
 kubectl -n kube-system exec -it etcd-cp -- sh -c "ETCDCTL_API=3 ETCDCTL_CACERT=/etc/kubernetes/pki/etcd/ca.crt ETCDCTL_CERT=/etc/kubernetes/pki/etcd/server.crt ETCDCTL_KEY=/etc/kubernetes/pki/etcd/server.key etcdctl --endpoints=https://127.0.0.1:2379 member list"
 ```
 
 output as a table:
+
 ```sh
 kubectl -n kube-system exec -it etcd-cp -- sh -c "ETCDCTL_API=3 ETCDCTL_CACERT=/etc/kubernetes/pki/etcd/ca.crt ETCDCTL_CERT=/etc/kubernetes/pki/etcd/server.crt ETCDCTL_KEY=/etc/kubernetes/pki/etcd/server.key etcdctl --endpoints=https://127.0.0.1:2379 member list -w table"
 ```
 
 lets backup the database now :
+
 ```sh
 kubectl -n kube-system exec -it etcd-cp -- sh -c "ETCDCTL_API=3 ETCDCTL_CACERT=/etc/kubernetes/pki/etcd/ca.crt ETCDCTL_CERT=/etc/kubernetes/pki/etcd/server.crt ETCDCTL_KEY=/etc/kubernetes/pki/etcd/server.key etcdctl --endpoints=https://127.0.0.1:2379 snapshot save /var/lib/etcd/snapshot.db"
 
@@ -1051,58 +1094,68 @@ cp -r /etc/kubernetes/pki/etcd/ ./etcd_backup/
 ```
 
 ----
+
 upgrade the cluster
 ----
 
-**DaemonSet**: Ensures a specific pod runs on every node or selected nodes and is auto-scheduled. 
+**DaemonSet**: Ensures a specific pod runs on every node or selected nodes and is auto-scheduled.
 
 **`--ignore-daemonsets`**: Used to evict all pods except DaemonSet pods when draining a node.
 
 **Common DaemonSet Use Cases**:
+
 - **Monitoring**: Prometheus, Fluentd
 - **Networking**: kube-proxy, Calico, Cilium
 - **Storage**: Ceph, GlusterFS
 - **Security & Logging**: Falco, Sysdig
 
 Starting update, first apt update:
+
 ```sh
 apt update
 ```
 
 then change version on kubernetes apt list:
+
 ```sh
 sed -i 's/31/32/g' /etc/apt/sources.list.d/kubernetes.list 
 apt update
 ```
 
 check upgradble packages:
+
 ```sh
 apt list --upgradble
 apt-cache madison kubeadm
 ```
 
 unhold kubeadm package
+
 ```sh
 apt-mark unhold kubeadm
 ```
 
 install new kubeadm version
+
 ```sh
 apt-get install -y kubeadm=1.32.1-1.1
 ```
 
 hold again
+
 ```sh
 apt-mark hold kubeadm
 ```
 
 check version
+
 ```sh
 kubeadm version
 kubeadm version: &version.Info{Major:"1", Minor:"32", GitVersion:"v1.32.1", GitCommit:"e9c9be4007d1664e68796af02b8978640d2c1b26", GitTreeState:"clean", BuildDate:"2025-01-15T14:39:14Z", GoVersion:"go1.23.4", Compiler:"gc", Platform:"linux/amd64"}
 ```
 
 drain the cp node from cluster with ignore daemonset:
+
 ```sh
 kubectl drain cp --ignore-daemonsets 
 node/cp cordoned
@@ -1117,6 +1170,7 @@ node/cp drained
 ```
 
 dry run the upgrade and check availibity and suggestion (**only works on CP**) :
+
 ```sh
 kubeadm upgrade plan
 Components that must be upgraded manually after you have upgraded the control plane with 'kubeadm upgrade apply':
@@ -1136,7 +1190,7 @@ etcd                      cp        3.5.15-0   3.5.16-0
 
 You can now apply the upgrade by executing the following command:
 
-	kubeadm upgrade apply v1.32.3
+ kubeadm upgrade apply v1.32.3
 
 Note: Before you can perform this upgrade, you have to update kubeadm to v1.32.3.
 
@@ -1155,6 +1209,7 @@ _____________________________________________________________________
 ```
 
 upgrade the cp node:
+
 ```sh
 kubeadm upgrade apply v1.32.1
 ....
@@ -1185,6 +1240,7 @@ kubeadm upgrade apply v1.32.1
 ```
 
 check nodes, the cp node is `Read,SchedulingDisabled` and we still have the old version since we didnt restart the daemonsets yet:
+
 ```sh
 k get node
 NAME   STATUS                     ROLES           AGE     VERSION
@@ -1193,6 +1249,7 @@ dp     Ready                      <none>          5d10h   v1.31.1
 ```
 
 unmark kubelet and kubectl to upgrade them also :
+
 ```sh
 apt-mark unhold kubelet kubectl
 apt-get install -y kubelet=1.32.1-1.1 kubectl=1.32.1-1.1
@@ -1202,16 +1259,20 @@ apt-mark hold kubelet kubectl
 ```
 
 restart the daemonset and kubelet
+
 ```sh
 systemctl daemon-reload
 systemctl restart kubelet
 ```
 
 uncordon the cp and put back inside the cluster
+
 ```sh
 kubectl uncordon cp
 ```
+
 now check the nodes, we should have the right version now :
+
 ```sh
 k get node
 NAME   STATUS   ROLES           AGE     VERSION
@@ -1219,8 +1280,8 @@ cp     Ready    control-plane   9d      v1.32.1
 dp     Ready    <none>          5d11h   v1.31.1
 ```
 
-
 ----
+
 Updating worker
 ----
 
@@ -1254,9 +1315,9 @@ systemctl restart kubelet
 kubectl get nodes
 ```
 
-
 ----
-CPU and Memory Contraintes.
+
+CPU and Memory Contraintes
 ----
 
 FYI : **containerd use docker.io as a registry** by default unless specified otherwise in `/etc/containerd/config.toml`
@@ -1264,20 +1325,24 @@ FYI : **containerd use docker.io as a registry** by default unless specified oth
 in this tp we will use 3 terminals, one for managing the hog application with stress image and 2 for top to check memory ussage with `alt+m` in cp and dp.
 
 first we create the hog app deploy:
+
 ```sh
 kubectl create deployment hog --image vish/stress
 ```
 
 there is no CPU or memory limits on our POD :
+
 ```sh
 k describe deploy hog
 k get deployments.apps hog -o yaml
 ```
 
 lets modify our deploy:
+
 ```sh
 k get deployements.apps hog -o yaml > hog.yaml
 ```
+
 be sure to delete unecessary fields like status or creatin stamps.
 
 by first adding cpu and memory limit:
@@ -1298,11 +1363,12 @@ by first adding cpu and memory limit:
 ```
 
 then we replace the existing deploy:
+
 ```sh
 k replace -f hog.yaml
 ```
-Now by passing some parameter to the image by using args , we will ask stress to consume more resource:
 
+Now by passing some parameter to the image by using args , we will ask stress to consume more resource:
 
 ```sh
           resources:
@@ -1327,19 +1393,21 @@ if its not working you can check k logs and adjust the indentation of args.
 
 Now if you check top on cp and work nodes you will have more Memory and cpu consumption.
 
-
 ----
+
 namespace
 ----
 
 Now we will set LimitRange in a namespace.
 First we create a namespace:
+
 ```sh
 k create namespace low-usage-limit
 k get ns
 ```
 
 we create a limitrange yaml file:
+
 ```yaml
 apiVersion: v1
 kind: LimitRange
@@ -1357,6 +1425,7 @@ spec:
 ```
 
 then we apply in the ns
+
 ```sh
 k -n low-usage-limit apply -f low-resource-range.yaml
 k get limitranges -A
@@ -1364,19 +1433,23 @@ k -n low-usage-limit describe limitrange low-resource-range
 ```
 
 we then create a new hog deploy, he will unherit the limitrange automatically
+
 ```sh
 k -n low-usage-limit create deploy limited-hog --image vish/stress
 k get pod -A
 k -n low-usage-limit get pod limited-hog -o yaml
 ```
+
 we will see that it inherited the limits
 
 we then create a copy of first hog deploy with param args and create it inside the namespace with limitrange:
+
 ```sh
 cp hog.yaml hog2.yaml
 ```
 
 we then change the namespace and delete any selflink found
+
 ```yaml
 kind: Deployment # kind specifies the type of Kubernetes resource, such as Deployment, Service, Pod, etc.
 metadata:
@@ -1390,11 +1463,14 @@ metadata:
 ```
 
 and we create it
+
 ```sh
 k create -f hog2.yaml
 k get pod -A
 ```
+
 we wait for pod creation, now we have, 3 hog application, one inside default and schedulded in worker node, and 2 inside low-usage-limit but since the worker is fully used with hog1 , hog2 that uses same resource will be schedulded on CP:
+
 ```sh
 NAMESPACE         NAME                               READY   STATUS              RESTARTS      AGE
 default           hog-ff4f4d4fd-mq2rh                1/1     Running             0             13m
@@ -1404,23 +1480,21 @@ low-usage-limit   limited-hog-5bc984c8bf-88ndz       1/1     Running            
 
 If we check the system's resource usage using `top`, we will observe that both `hog1` and `hog2` are consuming the maximum allocated resources on the worker and control plane nodes. This behavior occurs because per-deployment resource settings take precedence over (have prio) the global `LimitRange` defined at the namespace level.
 
-
 **=> So deploy setting > namespace settings , namespace here is like a default value, that can be overriding by deploy manifest.**
 
-
 ----
+
 API Access
 ----
 
 The entire architecture of kube is API-Driven, this is managed by kube-apiserver , curling the API server can expose current API groups, this groups may have multiple versions which evolve independtly and follow a domain-name format with several name reserverd such as single-word domains, the empty group and a lot of sub-domaine ending in .k8s.io.
-
 
 One of the roles of kubectl is making this api calls on your behalfs and also responding to requests from kube-apiserver (HTTPverbs, GET, POST, DELETE)
 
 You can bypass kubectl and make this calls by yourself using the right url, certificates and keys, example :
 
 ```sh
-$ curl --cert userbob.pem --key userbob-key.pem --cacert /path/to/ca.pem https://k8sServer:6443/api/v1/pods
+curl --cert userbob.pem --key userbob-key.pem --cacert /path/to/ca.pem https://k8sServer:6443/api/v1/pods
 ```
 
 You can impersonate other users or groups based on RBAC settings. This is useful for debugging authorization and security policies for different users.
@@ -1441,24 +1515,27 @@ no
 Kubernetes provides three APIs to determine who can perform specific actions and what resources can be queried:
 
 1. **SelfSubjectAccessReview**  
-  - Allows a user to review their own access permissions.
-  - Useful for delegating access checks to other users.
+
+- Allows a user to review their own access permissions.
+- Useful for delegating access checks to other users.
 
 2. **LocalSubjectAccessReview**  
-  - Restricts the access review to a specific namespace.
-  - Ideal for namespace-scoped permission checks.
+
+- Restricts the access review to a specific namespace.
+- Ideal for namespace-scoped permission checks.
 
 3. **SelfSubjectRulesReview**  
-  - Displays the actions a user is allowed to perform within a particular namespace.
-  - Helps users understand their permissions in a given context.
 
+- Displays the actions a user is allowed to perform within a particular namespace.
+- Helps users understand their permissions in a given context.
 
 **reconcile:**
+
 ```sh
 kubectl auth reconcile -f <file.yaml>
 ```
-This command checks if the permissions required to create or update the resources defined in `<file.yaml>` are in place. If no output is returned, it means the operation would be allowed.
 
+This command checks if the permissions required to create or update the resources defined in `<file.yaml>` are in place. If no output is returned, it means the operation would be allowed.
 
 ***The default serilization for API calls must be JSON, all yaml file are convert from and to JSON.***
 
@@ -1468,8 +1545,9 @@ Kubernetes uses the `resourceVersion` value (associated with resources like Pods
 2. **Modify in Memory**: Make the necessary changes to the resource locally.
 3. **Attempt to Save**: Try to save the updated resource back to the system.
 4. **Check for Conflicts**:
-  - **No Conflict**: If the `resourceVersion` matches, commit the changes successfully.
-  - **Conflict Detected**: If the `resourceVersion` has changed (indicating another update occurred), the operation fails. You must retry the process by fetching the latest state of the resource.
+
+- **No Conflict**: If the `resourceVersion` matches, commit the changes successfully.
+- **Conflict Detected**: If the `resourceVersion` has changed (indicating another update occurred), the operation fails. You must retry the process by fetching the latest state of the resource.
 
 This approach ensures consistency without requiring locks, making it efficient for distributed systems like Kubernetes.
 
@@ -1478,8 +1556,10 @@ This approach ensures consistency without requiring locks, making it efficient f
 `resourceVersion` is derived from the `modifiedIndex` in ETCD. It is unique per namespace, kind, and server. Operations like `WATCH` and `GET` do not update it as they don't modify the object.
 
 ----
+
 Annotation & Labels
 ----
+
 Both Labels and Annotations are a key-value pair meta-data for k8s objects
 
 Lables role is to identify resource, can help grouping, filtering and querying resource and it is used by Selectors in deploy,svc for example:
@@ -1492,6 +1572,7 @@ metadata:
 ```
 
 querying:
+
 ```sh
 kubectl get pods -l app=my-app
 ```
@@ -1506,6 +1587,7 @@ metadata:
 ```
 
 example of usage:
+
 ```sh
 kubectl annotate pods --all description="Production Pods" -n prod
 kubectl annotate --overwride pod webpod description="Old Production pod" -n prod
@@ -1513,8 +1595,10 @@ kubectl -n prod annotate pod webpod description-
 ```
 
 ----
+
 Simple POD
 ----
+
 The smallest unit in Kubernetes, a Pod, typically contains one primary application container and optional supporting containers(logging for example).
 
 example :
@@ -1531,12 +1615,14 @@ spec:
 ```
 
 exemple of kubectl:
+
 ```sh
 kubectl create -f simple.yaml
 kubectl get pods
 ```
 
 kubectl verbosity:
+
 ```sh
 kubectl --v=10 get pods firstpod.
 ```
@@ -1546,6 +1632,7 @@ Get the cluster config view in case you want to curl the cluster from outisde:
 ```sh
 kubectl config view
 ```
+
 ```yaml
 apiVersion: v1
 clusters:
@@ -1582,7 +1669,7 @@ Namespaces refer to both the kernel feature for isolating resources and the logi
 
 Every API call include a namespace, else default is choosed:
 
-https://10.128.0.3:6443/api/v1/**namespaces**/default/pods
+<https://10.128.0.3:6443/api/v1/**namespaces**/default/pods>
 
 **access policies will work on namespace boundaries.**
 
@@ -1599,6 +1686,7 @@ kubectl get raw --raw /apis | jq .
 ```
 
 these are the same:
+
 ```sh
 curl --cert /tmp/client.pem --key /tmp.client-key.pem --cacert /tmp/ca.pem -v -XGET https://10.128.3:6443/api/v1/namespaces/default/pods/firstpod/log
 ####same as
@@ -1616,6 +1704,7 @@ Kubernetes employs API groups and versioning (Alpha, Beta, Stable) to enable fea
 ### Curling with Certificates
 
 You can interact with the Kubernetes API using certificates from the kubeconfig file:
+
 ```sh
 curl --cert ./client.pem --key ./client-key.pem --cacert ./ca.pem https://k8scp:6443/api/v1/pods
 ```
@@ -1633,11 +1722,13 @@ echo $auth | base64 -d - > ./ca.pem
 curl --cert ./client.pem --key ./client-key.pem --cacert ./ca.pem https://k8scp:6443/api/v1/pods
 
 ```
+
 lets try to create a pod using json file :
 
 ```sh
 cat curlpod.json 
 ```
+
 ```json
 {
     "kind": "Pod",
@@ -1658,6 +1749,7 @@ cat curlpod.json
     }
 }
 ````
+
 lets run this :
 
 ```sh
@@ -1665,9 +1757,8 @@ lets run this :
 curl --cert ./client.pem --key ./client-key.pem --cacert ./ca.pem https://k8scp:6443/api/v1/namespaces/default/pods -X POST -H 'Content-Type: application/json' -d @curlpod.json
 ```
 
-
-
 You cant get more info about the api inside :
+
 ```sh
 cd ./kube/cache/discovery/k8scp_6443
 find .
@@ -1676,6 +1767,7 @@ python3 -m json.tool discovery/k8scp_6443/apps/v1/serverresources.json | grep ki
 ```
 
 ----
+
 Other APIs
 ----
 
@@ -1691,6 +1783,7 @@ Other APIs
 - **StatefulSet**: Manages unique pods with stable storage, network, and ordering (e.g., app-0, app-1).
 
 ----
+
 Autoscaling
 ----
 
@@ -1700,8 +1793,8 @@ Autoscaling
 
 **Vertical Pod Autoscaler (VPA)**: Adjusts CPU and memory requests/limits for pods based on actual usage, unlike HPA, which scales the number of pods. VPA ensures optimal resource allocation for individual pods.
 
-
 ----
+
 BATCH API
 ----
 
@@ -1724,6 +1817,7 @@ spec:
       restartPolicy: Never
   backoffLimit: 4
 ```
+
 This Job will print "Hello, Kubernetes!" and then sleep for 5 seconds before completing.
 
 **CronJobs**: Similar to Linux cron jobs, they schedule tasks using the same time syntax.
@@ -1751,19 +1845,22 @@ spec:
 This CronJob runs every 5 minutes, prints "Hello, Kubernetes!" to the logs, and then sleeps for 10 seconds before completing.
 
 `.spec.concurrencyPolicy` controls overlapping job execution:
+
 - **Allow**: Runs jobs concurrently.
 - **Forbid**: Waits for current jobs to finish before starting new ones.
 - **Replace**: Stops current jobs to start new ones immediately.
 
 ----
+
 RBAC
 ----
 
-**RBAC**: Role-Based Access Control. 
+**RBAC**: Role-Based Access Control.
 
 - **ClusterRole**: A ClusterRole defines a set of permissions (verbs, resources, and resource names) that apply across the entire cluster. It is not namespace-specific and is used for granting access to cluster-wide resources like nodes, persistent volumes, or custom resource definitions (CRDs). ClusterRoles can be bound to users, groups, or service accounts using a ClusterRoleBinding.
 
   Example:
+
   ```yaml
   apiVersion: rbac.authorization.k8s.io/v1
   kind: ClusterRole
@@ -1778,6 +1875,7 @@ RBAC
 - **Role**: A Role is similar to a ClusterRole but is namespace-specific. It defines permissions for resources within a particular namespace. Roles are bound to users, groups, or service accounts using a RoleBinding.
 
   Example:
+
   ```yaml
   apiVersion: rbac.authorization.k8s.io/v1
   kind: Role
@@ -1806,9 +1904,11 @@ roleRef:
   name: cluster-admin
   apiGroup: rbac.authorization.k8s.io
 ```
+
 This example binds the `cluster-admin` ClusterRole to a user named `admin-user`, granting them cluster-wide administrative privileges.
 
 - RoleBinding: A `RoleBinding` is a Kubernetes resource that grants permissions defined in a `Role` to a user, group, or service account within a specific namespace. It is used when you want to limit access to resources within a single namespace.
+
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -1824,11 +1924,13 @@ roleRef:
   name: namespace-admin-role
   apiGroup: rbac.authorization.k8s.io
 ```
+
 This example binds the `namespace-admin-role` Role to a user named `dev-user`, granting them permissions within the `default` namespace.
 
 in this tp we use curl with a token we generate to make API request.
 
 First we get the IP/Hostname and port of the node runing a replica of API-server in our case it is the CP:
+
 ```sh
 k get pod -A -o wide | grep apiserver
 NAMESPACE     NAME                               READY   STATUS    RESTARTS      AGE   IP             NODE   NOMINATED NODE   READINESS GATES
@@ -1836,6 +1938,7 @@ kube-system   kube-apiserver-cp                  1/1     Running   0            
 ```
 
 view kube config :
+
 ```sh
 apiVersion: v1
 clusters:
@@ -1847,6 +1950,7 @@ clusters:
 ```
 
 Now we generate a token and stock in a var:
+
 ```sh
 echo $token
 eyJhbGciOiJSUzI1NiIsImtpZCI6IlZka3k4VGZ6MXdaQUlOTXIzOEN6UklZWHlVUWVjMzNQN1I1djhYZjRTYTgifQ.eyJhdWQiOlsiaHR0cHM6Ly9rdWJlcm5ldGVzLmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWwiXSwiZXhwIjoxNzQ0NTY4MDMwLCJpYXQiOjE3NDQ1NjQ0MzAsImlzcyI6Imh0dHBzOi8va3ViZXJuZXRlcy5kZWZhdWx0LnN2Yy5jbHVzdGVyLmxvY2FsIiwianRpIjoiYjg4YjY2ODAtZGFhZC00NjNhLWJlMTEtZjA0MTllYzU5NGFlIiwia3ViZXJuZXRlcy5pbyI6eyJuYW1lc3BhY2UiOiJkZWZhdWx0Iiwic2VydmljZWFjY291bnQiOnsibmFtZSI6ImRlZmF1bHQiLCJ1aWQiOiI1MTgzMjZkNS1mZTg2LTQ4MzEtYjBlMC1jMTI2MTllNmQzYjcifX0sIm5iZiI6MTc0NDU2NDQzMCwic3ViIjoic3lzdGVtOnNlcnZpY2VhY2NvdW50OmRlZmF1bHQ6ZGVmYXVsdCJ9.Uj2wIyih52wikM3Pzq5wmQShg6L5liybVF2DOHEwhiMWqtE5LmGrmZPjDyNKfnHfQxLgebsuc0imJHmscKsGft-BNI_O2Fl_XMI8mFWDIdXTsij_ieaSq5J0g-tWH-_DEIJYWsbc6_JFlDAJmGhUEENVCrmgigNdfszDd4Zyl-gP3Z0dNwxvNYWib2vMBRJch0RVVDO99ZDm2b7F8rswjzXdegY7hv7IGqE7ngvUkK5-V031WTp9SFUvs7zKxM_tDtg6DlUyj7jpjvui-ybwnNsR2ux-0CO0OPCt6LOau33BdmbnU67_sg0jJ1_A4n7-KD-BTXTAzPmUS3jliuXcOg
@@ -1854,9 +1958,11 @@ export token=$(kubectl create token default)
 ```
 
 we curl using this token
+
 ```sh
 curl https://k8scp:6443/apis --header "Authorization: Bearer $token" -k
 ```
+
 ```json
 {
   "kind": "APIGroupList",
@@ -1873,9 +1979,11 @@ curl https://k8scp:6443/apis --header "Authorization: Bearer $token" -k
 ```
 
 now we targed version 1 (api instead of apis)
+
 ```sh
 curl https://k8scp:6443/api/v1 --header "Authorization: Bearer $token" -k
 ```
+
 ```json
 {
   "kind": "APIResourceList",
@@ -1926,9 +2034,11 @@ curl https://k8scp:6443/api/v1 --header "Authorization: Bearer $token" -k
 ```
 
 now lets try to get namespace and see what we get:
+
 ```sh
 curl https://k8scp:6443/api/v1/namespaces --header "Authorization: Bearer $token" -k
 ```
+
 ```json
 {
   "kind": "Status",
@@ -1956,22 +2066,26 @@ Starting to serve on 127.0.0.1:8001
 ```
 
 curl through proxy
+
 ```sh
 curl http://127.0.0.1:8001/api
 ```
 
 curl namespaces
+
 ```sh
 curl http://127.0.0.1:8001/api/v1/namespaces
 ```
 
 ----
+
 Jobs example
 ----
 
-we will create a simple job: 
+we will create a simple job:
 
 cp /home/omarbistami/LFCourse/LFS258/SOLUTIONS/s_06/job.yaml .
+
 ```yaml
 apiVersion: batch/v1
 kind: Job
@@ -2031,6 +2145,7 @@ k delete pod sleepy
 ```
 
 we can also add parallelism :
+
 ```yaml
 apiVersion: batch/v1
 kind: Job
@@ -2085,6 +2200,7 @@ sleepy   Running   2/5           14s        14s
 ```
 
 we can see more info :
+
 ```sh
 k get job sleepy -o yaml
 .....
@@ -2121,6 +2237,7 @@ k describe job sleepy
 ```
 
 now we will create a cronjob whom will use linux style cronjob syntaxe and each time he need to run will create a job
+
 ```yaml
 kind: CronJob
 metadata:
@@ -2138,6 +2255,7 @@ spec:
             args: ["5"]
           restartPolicy: Never
 ```
+
 ```sh
 k get cronjob
 NAME     SCHEDULE      TIMEZONE   SUSPEND   ACTIVE   LAST SCHEDULE   AGE
@@ -2167,6 +2285,7 @@ spec:
               args: ["30"]
           restartPolicy: Never
 ```
+
 ```sh
 k get cronjob
 NAME     SCHEDULE      TIMEZONE   SUSPEND   ACTIVE   LAST SCHEDULE   AGE
@@ -2190,7 +2309,6 @@ Events:
   Warning  DeadlineExceeded  41s   job-controller  Job was active longer than specified deadline
 ```
 
-
 ----
 DEPLOYEMENT
 ____
@@ -2211,6 +2329,7 @@ items:
 - apiVersion: apps/v1
   kind: Deployment
 ```
+
 - `apiVersion: v1` specifies the API version for the list object, which is used to group multiple Kubernetes resources.
 - `kind: List` indicates that this YAML file contains a collection of Kubernetes objects.
 - `items` is the key that holds the list of Kubernetes objects, such as deployments, services, and other resources.
@@ -2220,6 +2339,7 @@ items:
 This structure allows you to define and manage multiple resources in a single YAML file.
 
 in the next par we have the metadata:
+
 ```yaml
 metadata:
   annotations:
@@ -2248,11 +2368,11 @@ spec:                                   # delecation that the following item wil
   revisionHistoryLimit: 10              # Number of old ReplicaSets to retain for rollback 
   progressDeadlineSeconds: 600          # Time (in seconds) to wait for progress before marking deployment as failed
 ```
+
 **Key fields explained:**
+
 - `revisionHistoryLimit`: Limits how many previous ReplicaSets are kept for rollback.
 - `progressDeadlineSeconds`: Fails the deployment if progress stalls for this duration.
-
-
 
 ```yaml
 template:                                   # Pod template for the deployment that will be passed to replicaset to deploy the container.
@@ -2276,6 +2396,7 @@ template:                                   # Pod template for the deployment th
 ```
 
 The Status Section:
+
 ```yaml
 status:
   availableReplicas: 2           # Number of replicas (pods) that are available to serve requests (i.e., ready and minimum availability requirements met).
@@ -2297,7 +2418,9 @@ status:
   replicas: 2                                  # Total number of desired pod replicas as specified in the deployment spec.
   updatedReplicas: 2                           # Number of replicas updated to the latest spec (i.e., running the new pod template).
 ```
+
 **Key fields explained:**
+
 - `availableReplicas`: Pods available to serve requests (minimum availability met).
 - `readyReplicas`: Pods that have passed readiness checks and are ready to receive traffic.
 - `replicas`: Desired number of pod replicas as defined in the deployment spec.
@@ -2307,20 +2430,25 @@ status:
 This status section provides a quick overview of your deployment's rollout progress, availability, and health.
 
 The API server allow for some configuration to be updated quickly, you can scale your deployment easily with:
+
 ```sh
 kubectl scale deploy/dev-web --replicas=4
 ```
 
 But they are some immutable values, that need to edit the object for update, for example, to update the container image (e.g., change the nginx version), edit the deployment:
+
 ```sh
 kubectl edit deployment dev-web
 ```
+
 Then modify the image field:
+
 ```yaml
 containers:
 - image: nginx:1.8  # Update to desired version
   name: dev-web
 ```
+
 Kubernetes will automatically perform a rolling update when the image changes.
 
 Deployement Rollbacks:
@@ -2337,19 +2465,23 @@ kubectl annotate deployment/ghost kubernetes.io/change-cause="kubectl create dep
 # Retrieve the full YAML definition of the 'ghost' deployment for inspection or documentation
 kubectl get deployment ghost -o yaml
 ```
+
 ```yaml
 deployment.kubernetes.io/revision: "1" 
 kubernetes.io/change-cause: kubectl create deploy ghost --image=ghost
 ```
 
 Lets set the wrong image version:
+
 ```sh
 kubectl set image deployement/ghost ghost=ghost:09 --all
 kubectl get pods
 NAME                    READY  STATUS            RESTARTS  AGE
 ghost-2141819201-tcths  0/1    ImagePullBackOff  0         1m​
 ```
+
 To rollback the change :
+
 ```sh
 kubectl rollout undo deployement/ghost
 kubectl get pods
@@ -2357,9 +2489,10 @@ NAME                    READY  STATUS   RESTARTS  AGE
 ghost-3378155678-eq5i6  1/1    Running  0         7s
 ```
 
-To rollout to a specific previous version, you can use : `--to-revision=2 ` or directly edit the deployement manifest.
+To rollout to a specific previous version, you can use : `--to-revision=2` or directly edit the deployement manifest.
 
 To pause then resume a deployement:
+
 ```sh
 kubectl rollout pause deployement/ghost
 kubectl rollout resume deployement/ghost
@@ -2372,6 +2505,7 @@ Please note that you can still do a rolling update on ReplicationControllers wit
 Suppose you have a ReplicationController named `my-app` running version 1 of your app. You want to update it to version 2.
 
 You would run:
+
 ```sh
 kubectl rolling-update my-app --image=my-app:v2
 ```
@@ -2382,21 +2516,26 @@ kubectl rolling-update my-app --image=my-app:v2
 **Key point:** Unlike newer Deployment objects (which handle rolling updates on the server side), ReplicationController rolling updates depend on your local `kubectl` session staying active.
 
 -----
+
 DaemonSets
 -----
+
 A DaemonSet ensures that exactly one pod runs on each node in the cluster, typically using the same container image. When new nodes join, the DaemonSet automatically schedules a pod on them; when nodes are removed, their pods are cleaned up. This is ideal for deploying system-level services like logging or monitoring agents across all nodes without manual intervention.
 
 There are ways of effecting the kube-scheduler such that some nodes will not run a DaemonSet.
 
 -----
+
 LABELS
 -----
+
 Labels are part of metadata and are not standalone API objects. They enable selection and grouping of Kubernetes resources using key-value pairs, regardless of the object type.
 
 As of API version apps/v1, a Deployment's label selector is immutable after it gets created.  
 If you need to change the label selector, you must delete the existing Deployment and create a new one with the desired label selector.
 
 When creating a deployement, k8s by default adds :
+
 ```yaml
     labels:
         pod-template-hash: "3378155678"
@@ -2404,11 +2543,13 @@ When creating a deployement, k8s by default adds :
 ```
 
 to view the labels
+
 ```sh
 kubectl get pods -l run=ghost
 NAME                    READY  STATUS   RESTARTS  AGE
 ghost-3378155678-eq5i6  1/1    Running  0         10m
 ```
+
 ```sh
 kubectl get pods -L run
 NAME                    READY  STATUS   RESTARTS  AGE  RUN
@@ -2421,6 +2562,7 @@ In addition to defining labels on pod and deployement templates, you can also ad
 ```sh
 kubectl label pods ghost-3378155678-eq5i6 foo=bar
 ```
+
 ```sh
 kubectl get pods --show-labels
 NAME                    READY  STATUS   RESTARTS  AGE  LABELS
@@ -2428,6 +2570,7 @@ ghost-3378155678-eq5i6  1/1    Running  0         11m  foo=bar, pod-template-has
 ```
 
 You can force scheduling **a pod on a specific node** by using `nodeSelector` in the pod definition. The `nodeSelector` matches the specified key-value pair with the labels on nodes, ensuring the pod is scheduled only on nodes that have the matching labels:
+
 ```yaml
 spec:
     containers:
@@ -2437,6 +2580,7 @@ spec:
 ```
 
 -----
+
 REPLICASETS TP
 -----
 
@@ -2477,6 +2621,7 @@ NAME           READY   STATUS    RESTARTS   AGE
 rs-one-6kx4x   1/1     Running   0          50s
 rs-one-ljkh9   1/1     Running   0          50s
 ```
+
 ```sh
 kubectl describe rs rs-one
 Name:         rs-one
@@ -2506,14 +2651,17 @@ Events:
 ```
 
 We then delete the rs but separte the pod from it using `--cascade=orphan`
+
 ```sh
 kubectl delete rs rs-one --cascade=orphan
 replicaset.apps "rs-one" deleted
 ```
+
 ```sh
 kubectl get rs
 No resources found in default namespace.
 ```
+
 ```sh
 kubectl get pod
 AME           READY   STATUS    RESTARTS   AGE
@@ -2522,9 +2670,11 @@ rs-one-qr6sv   1/1     Running   0          30s
 ```
 
 if we recreate the rs, the pods will be automatically attached to it since they use the Selectors:
+
 ```sh
 kubectl edit pod rs-one-ddj78 -o yaml
 ```
+
 ```yaml
 apiVersion: v1
 kind: Pod
@@ -2536,9 +2686,11 @@ metadata:
 ```
 
 now lets edit the labet in one pod :
+
 ```sh
 kubectl edit pod rs-one-ddj78 -o yaml
 ```
+
 ```yaml
 apiVersion: v1
 kind: Pod
@@ -2550,6 +2702,7 @@ metadata:
 ```
 
 the rs will create another pod since now we only have one with `system: ReplicaOne`
+
 ```sh
 kubectl get pod -L system
 NAME           READY   STATUS    RESTARTS   AGE     SYSTEM
@@ -2559,16 +2712,1693 @@ rs-one-zvkdh   1/1     Running   0          29s     ReplicaOne
 ```
 
 if we delete the rs, the isolated one stays:
+
 ```sh
 kubectl delete pod rs-one-ddj78
 pod "rs-one-ddj78" deleted
 ```
+
 ```sh
 kubectl get pod
 NAME           READY   STATUS    RESTARTS   AGE
 rs-one-ddj78   1/1     Running   0          6m52s
 ```
+
 ```sh
 kubectl delete pod rs-one-ddj78
 pod "rs-one-ddj78" deleted
 ```
+
+```sh
+```
+
+----
+
+DEPLOYMENT TP
+----
+
+A Deployment is a high-level Kubernetes object for managing Pods and ReplicaSets. It allows declarative updates, scaling, and rolling updates to ensure the desired number of pods are running. Deployments make it easy to roll out new versions and maintain application availability with zero downtime.
+
+we create a deployement using imperative method:
+
+```sh
+kubectl create deploy webserver --image nginx:1.22.1 --replicas=2 --dry-run=client -o yaml | tee dep.yaml
+```
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: webserver
+  name: webserver
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webserver
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: webserver
+    spec:
+      containers:
+      - image: nginx:1.22.1
+        name: nginx
+        resources: {}
+status: {}
+```
+
+we create the deploy:
+
+```sh
+kubectl create -f dep.yaml
+deployment.apps/webserver created
+```
+
+```sh
+kubectl get deployments.apps
+NAME        READY   UP-TO-DATE   AVAILABLE   AGE
+webserver   2/2     2            2           9s
+```
+
+```sh
+kubectl get pod
+NAME                         READY   STATUS    RESTARTS   AGE
+webserver-764f6ffcc6-mv2cf   1/1     Running   0          16s
+webserver-764f6ffcc6-s8wth   1/1     Running   0          16s
+```
+
+we check the image used :
+
+```sh
+kubectl describe pod webserver-764f6ffcc6-s8wth | grep Image:
+    Image:          nginx:1.22.1
+```
+
+Now we will use rollout and rollback in deployement to update and rollback.
+First we view the current strategy setting:
+
+```sh
+kubectl get deployments.apps webserver -o yaml | grep -A 4 strategy
+```
+
+```yaml
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+```
+
+we edit the file to:
+
+```sh
+kubectl get deployments.apps webserver
+```
+
+```yaml
+  strategy:
+    #rollingUpdate:
+    #  maxSurge: 25%
+    #  maxUnavailable: 25%
+    type: Recreate
+```
+
+To update the Deployment to use a newer version of the nginx image, run:
+
+```sh
+kubectl set image deployment/webserver nginx=nginx:1.23.1-alpine --record
+```
+
+> **Note:** The `--record` flag, which was previously used to record the command in the resource's annotation, is now deprecated and no longer needed.
+
+check the modification:
+
+```sh
+root@cp:~# kubectl get pod
+NAME                         READY   STATUS    RESTARTS   AGE
+webserver-66455f7f85-ks2l4   1/1     Running   0          3m9s
+webserver-66455f7f85-mccfm   1/1     Running   0          3m9s
+```
+
+```sh
+root@cp:~# kubectl describe po webserver-66455f7f85-ks2l4 | grep Image:
+    Image:          nginx:1.23.1-alpine
+```
+
+View the history of changes:
+
+```sh
+kubectl rollout history deploy webserver
+
+REVISION  CHANGE-CAUSE
+1         <none>
+2         kubectl set image deployments webserver nginx=nginx:1.23.1-alpine --record=true
+```
+
+View the settings:
+
+```sh
+kubectl rollout history deploy webserver --revision=1
+deployment.apps/webserver with revision #1
+Pod Template:
+  Labels:       app=webserver
+        pod-template-hash=764f6ffcc6
+  Containers:
+   nginx:
+    Image:      nginx:1.22.1
+    Port:       <none>
+    Host Port:  <none>
+    Environment:        <none>
+    Mounts:     <none>
+  Volumes:      <none>
+  Node-Selectors:       <none>
+  Tolerations:  <none>
+```
+
+```sh
+kubectl rollout history deploy webserver --revision=2
+deployment.apps/webserver with revision #2
+Pod Template:
+  Labels:       app=webserver
+        pod-template-hash=66455f7f85
+  Annotations:  kubernetes.io/change-cause: kubectl set image deployments webserver nginx=nginx:1.23.1-alpine --record=true
+  Containers:
+   nginx:
+    Image:      nginx:1.23.1-alpine
+    Port:       <none>
+    Host Port:  <none>
+    Environment:        <none>
+    Mounts:     <none>
+  Volumes:      <none>
+  Node-Selectors:       <none>
+  Tolerations:  <none>
+```
+
+Now lets use rollout undo to change the deploy back to previous version:
+
+```sh
+kubectl rollout undo deployment webserver
+deployment.apps/webserver rolled back
+```
+
+```sh
+kubectl get po
+NAME                         READY   STATUS    RESTARTS   AGE
+webserver-764f6ffcc6-pkl59   1/1     Running   0          6s
+webserver-764f6ffcc6-ppqbx   1/1     Running   0          6s
+```
+
+```sh
+kubectl describe pod webserver-764f6ffcc6-pkl59 | grep Image:
+    Image:          nginx:1.22.1
+```
+
+Lets now try the `RollingUpdate` Strategy, we create from the dep.yaml we created previously:
+
+```sh
+kubectl apply -f dep.yaml
+```
+
+```yaml
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+```
+
+Everything is created
+
+```sh
+k get all
+NAME                             READY   STATUS    RESTARTS   AGE
+pod/webserver-764f6ffcc6-2r5xr   1/1     Running   0          35s
+pod/webserver-764f6ffcc6-v8xwv   1/1     Running   0          35s
+
+NAME                        READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/webserver   2/2     2            2           35s
+
+NAME                                   DESIRED   CURRENT   READY   AGE
+replicaset.apps/webserver-764f6ffcc6   2         2         2       35s
+```
+
+We change the image:
+
+```sh
+kubectl set image deployement webserver nginx=nginx:1.23.1-alpine
+```
+
+The rolling update will gradually update pod:
+
+```sh
+k get pod
+NAME                         READY   STATUS              RESTARTS   AGE
+webserver-66455f7f85-blhlj   1/1     Running             0          41s
+webserver-66455f7f85-nkwcl   1/1     Running             0          39s
+webserver-764f6ffcc6-tdrgg   0/1     ContainerCreating   0          2s
+```
+
+Here we can also use `kubectl rollout history` and `kubectl rollout undo`
+
+```sh
+kubectl rollout history deployment webserver # show history
+kubectl rollout undo deployment webserver # rollback to revision n-1
+```
+
+-----
+
+DAEMONSETS
+-----
+
+A DaemonSet ensures a pod runs on every node in a Kubernetes cluster, unlike a Deployment which manages a set number of pods regardless of node distribution.
+DaemonSets are useful for tasks like metrics collection or logging on all nodes, especially in dynamic or large clusters.
+Since Kubernetes v1.12, you can configure which nodes run DaemonSet pods, enabling more flexible and complex deployments.
+
+```yaml
+kind: DaemonSet
+metadata:
+  name: ds-one
+spec:
+  selector:
+    matchLabels:
+      system: DaemonSetOne
+  template:
+    metadata:
+      labels:
+        system: DaemonSetOne
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.22.1
+        ports:
+        - containerPort: 80
+```
+
+```sh
+kubectl create -f ds.yaml
+daemonset.apps/ds-one created
+```
+
+```sh
+kubectl get ds
+NAME     DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+ds-one   2         2         2       2            2           <none>          27s
+```
+
+```sh
+k get pod -owide
+NAME           READY   STATUS    RESTARTS   AGE   IP              NODE   NOMINATED NODE   READINESS GATES
+ds-one-56txc   1/1     Running   0          78s   192.168.0.167   cp     <none>           <none>
+ds-one-h9pdh   1/1     Running   0          78s   192.168.1.44    dp     <none>           <none>
+```
+
+Micro-services let you upgrade containers without downtime. We'll use the `OnDelete`: new Pods are NOT automatically created when you update the Pod template.
+Instead, you must manually delete the old Pods.
+
+Lets get the updateStrategy:
+
+```sh
+kubectl get ds ds-one -o yaml | grep -A 4 Strategy
+```
+
+```yaml
+  updateStrategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
+```
+
+Lets change it to OnDelete:
+
+```sh
+kubectl edit ds ds-one
+```
+
+```yaml
+  updateStrategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: OnDelete
+```
+
+we will then update the nginx image version
+
+```sh
+kubectl set image ds ds-one nginx=nginx:1.26-alpine --record
+#Flag --record has been deprecated, --record will be removed in the future
+daemonset.apps/ds-one image updated
+```
+
+pod will not update automatically:
+
+```sh
+kubectl get pod
+NAME           READY   STATUS    RESTARTS   AGE
+ds-one-56txc   1/1     Running   0          167m
+ds-one-h9pdh   1/1     Running   0          167m
+```
+
+```sh
+kubectl describe po ds-one-56txc | grep Image:
+    Image:          nginx:1.22.1
+```
+
+we delete one pod:
+
+```sh
+kubectl delete po ds-one-56txc
+pod "ds-one-56txc" deleted
+```
+
+new pod created with newer version:
+
+```sh
+kubectl get pod
+NAME           READY   STATUS              RESTARTS   AGE
+ds-one-dx9d9   0/1     ContainerCreating   0          2s
+ds-one-h9pdh   1/1     Running             0          171m
+```
+
+new pod have the right image:
+
+```sh
+kubectl describe po ds-one-dx9d9 | grep Image:
+    Image:          nginx:1.26-alpine
+kubectl describe po ds-one-h9pdh | grep Image:
+    Image:          nginx:1.22.1
+```
+
+We can also use rollout here to check old version or rollback
+
+```sh
+kubectl rollout history ds ds-one
+daemonset.apps/ds-one
+REVISION  CHANGE-CAUSE
+1         <none>
+2         kubectl set image ds ds-one nginx=nginx:1.26-alpine --record=true
+```
+
+```sh
+kubectl rollout history ds ds-one --revision=1
+...
+    Image:      nginx:1.22.1
+...
+```
+
+```sh
+kubectl rollout history ds ds-one --revision=2
+...
+   Image:      nginx:1.26-alpine
+...
+```
+
+We rollout undo to rollback to specific revision:
+
+```sh
+kubectl rollout undo ds ds-one --to-revision=1
+```
+
+but we need to delete the pod for it to be recreated with the rollback:
+
+```sh
+kubectl describe pod ds-one-dx9d9 | grep Image:
+    Image:          nginx:1.26-alpine
+```
+
+```sh
+kubectl delete pod ds-one-dx9d9
+pod "ds-one-dx9d9" deleted
+```
+
+```sh
+kubectl get pod
+NAME           READY   STATUS    RESTARTS   AGE
+ds-one-h9pdh   1/1     Running   0          3h49m
+ds-one-vshq5   1/1     Running   0          4s
+```
+
+now we have both image with the right version
+
+```sh
+kubectl describe pod ds-one-vshq5 | grep Image:
+    Image:          nginx:1.22.1
+kubectl describe pod ds-one-h9pdh | grep Image:
+    Image:          nginx:1.22.1
+```
+
+Now if we change to by creating a new ds2 and changing name to ds-two:
+
+```sh
+kubectl get ds ds-one -o yaml > ds2.yaml
+```
+
+```yaml
+  updateStrategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
+```
+
+```sh
+kubectl create -f ds2.yaml
+daemonset.apps/ds-two created
+```
+
+```sh
+kubectl get pod
+NAME           READY   STATUS    RESTARTS   AGE
+ds-one-h9pdh   1/1     Running   0          5h42m
+ds-one-vshq5   1/1     Running   0          113m
+ds-two-jqkdk   1/1     Running   0          24s
+ds-two-x7z97   1/1     Running   0          24s
+```
+
+```sh
+kubectl describe pod ds-two-jqkdk | grep Image:
+    Image:          nginx:1.22.1
+```
+
+now we have the roling update after editing the ds:
+
+```sh
+kubectl edit ds ds-two
+```
+
+```yaml
+.....
+- image: nginx:1.26-alpine
+.....
+```
+
+Rolling update:
+
+```sh
+k get pod
+NAME           READY   STATUS              RESTARTS   AGE
+ds-one-h9pdh   1/1     Running             0          5h44m
+ds-one-vshq5   1/1     Running             0          115m
+ds-two-4fx7z   0/1     ContainerCreating   0          0s
+ds-two-jqkdk   1/1     Running             0          3m3s
+```
+
+```sh
+kubectl get ds ds-two
+NAME     DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+ds-two   2         2         1       1            1           <none>          4m25s
+```
+
+to check rollout status:
+
+```sh
+kubectl rollout status ds ds-two
+Waiting for daemon set "ds-two" rollout to finish: 1 out of 2 new pods have been updated...
+```
+
+if success:
+
+```sh
+kubectl rollout status ds ds-two
+daemon set "ds-two" successfully rolled out
+```
+
+clean all:
+
+```sh
+kubectl delete ds ds-one ds-two
+daemonset.apps "ds-one" deleted
+daemonset.apps "ds-two" deleted
+```
+
+-----
+
+## Helm and Kustomize
+
+Helm is a package manager for Kubernetes, bundling manifests and deployment logic into reusable, versioned charts. Charts simplify application installation, upgrades, and rollbacks, and support environment-specific customization via values files or CLI. Helm integrates with CI/CD pipelines and has a large ecosystem of community-maintained charts.
+
+A typical Helm chart structure:
+
+```
+├── Chart.yaml        # Chart metadata (name, version, etc.)
+├── values.yaml       # Configurable values for templating
+├── templates/        # Kubernetes resource templates using Go templating.
+│   ├── deployment.yaml
+│   ├── svc.yaml
+│   ├── configmap.yaml
+│   ├── secrets.yaml
+│   ├── pvc.yaml
+│   ├── NOTES.txt
+│   └── _helpers.tpl
+└── README.md
+```
+
+**Templates**
+
+Templates are resource manifests that use Go templating syntax. Variables defined in `values.yaml` are injected into the template when a release is created.
+
+In the MariaDB example below: the database password is stored inside a Kubernetes Secret, while the database configuration is stored in a ConfigMap. Labels are defined in the Secret metadata using the chart name, release name, and other values.
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+    name: {{ template "fullname" . }}
+    labels:
+        app: {{ template "fullname" . }}
+        chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+        release: "{{ .Release.Name }}"
+        heritage: "{{ .Release.Service }}"
+type: Opaque
+data:
+    mariadb-root-password: {{ default "" .Values.mariadbRootPassword | b64enc | quote }}
+    mariadb-password: {{ default "" .Values.mariadbPassword | b64enc | quote }}
+```
+
+**Chart Repositories and Hub**
+
+Repositories are simple HTTP servers that contain an index file and a tarball of all the Charts present: <https://artifacthub.io/> that you can search using the `helm search hub`
+
+```sh
+helm search hub redis
+```
+
+you can use `helm repo` to interact with Repositories :
+
+```sh
+# Add the Bitnami Helm repository
+helm repo add bitnami https://charts.bitnami.com/bitnami
+```
+
+```sh
+# List all configured Helm repositories
+helm repo list
+
+NAME      URL
+bitnami   https://charts.bitnami.com/bitnami
+```
+
+once the repository is availble you can search it:
+
+```sh
+helm search repo bitnami
+```
+
+**Deploying a Chart**
+
+To deploy a Helm chart, review its README for required resources (like PVs for PVCs), then install with `helm install`.
+
+```sh
+helm fetch bitnami/apache --untar
+cd apache/
+ls
+
+Chart.lock  Chart.yaml  README.md  charts  ci  files  templates  values.schema.json  values.yaml
+helm install anotherweb
+```
+
+You will be able to list the release, delete it, even upgrade it and roll back.
+Also review the deployment output carefully. It provides access details and highlights missing cluster resources, making it a key source for troubleshooting.
+
+**Kustomize**
+Kustomize simplifies Kubernetes configuration by letting you define base resources and apply overlays for environment-specific changes, like image tags or labels. This modular approach avoids duplicating YAML and complex templates.
+
+Kustomize dont rely on templating like helm to inject values, its uses startegic merging and patches to adjusts configurations.
+
+Kustomize is now a built-in feature in `kubectl` you can directly call it using for example
+
+```sh
+# output the full rendered manifests to stdout — it doesn't apply them.
+kubectl kustomize dir
+
+# Apply the generated manifests to the Kubernetes cluster
+kubectl apply -f dir
+```
+
+The `kustomization.yaml` file is central to Kustomize, defining resources and how to modify them.
+
+Organize files into bases and overlays to reduce repetition and maintain consistency. Bases hold shared configurations, while overlays adjust specifics like replica counts or image tags for different environments.
+
+Use patches for precise changes, such as adding environment variables, and transformers for broader modifications, like applying common labels.
+
+Kustomize also generates resources like ConfigMaps and Secrets dynamically, ideal for creating them from literals or files during deployment.
+
+**Kustomize installation**
+
+```sh
+curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+cp kustomize /usr/local/bin/
+kustomize -h
+```
+
+A kustomize directory example:
+
+```sh
+kustomize-example/
+├── base/
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   └── kustomization.yaml
+└── overlays/
+    ├── dev/
+    │   ├── kustomization.yaml
+    │   └── patch-replicas.yaml
+    └── prod/
+        ├── kustomization.yaml
+        └── patch-image.yaml    
+```
+
+`kustomization.yaml` is a key file in Kustomize for managing Kubernetes manifests. It defines resources, applies environment-specific changes, adds prefixes/suffixes, labels, annotations, generates ConfigMaps/Secrets, and applies patches to modify configurations without duplicating files.
+
+-----
+HELM KUSTOMIZE TP
+
+Tiller was the server-side component of Helm v2(usually in kube-system namespace). but it was removed due to security issues.
+Now Helm v3+ communicate with k8s directly using kubeconfig.
+
+Installing Helm:
+
+```sh
+wget https://get.helm.sh/helm-v3.15.2-linux-amd64.tar.gz
+tar -xvf helm-v3.15.2-linux-amd64.tar.gz
+sudo cp linux-amd64/helm /usr/local/bin/helm
+```
+
+get some good starting charts in : <https://github.com/helm/charts/tree/master/stable>
+
+You can get for a list of available databases in the repo using:
+
+```sh
+helm search hub database 
+URL                                                CHART VERSION             APP VERSION                DESCRIPTION                                       
+https://artifacthub.io/packages/helm/osc/database  0.12.0                    0.1.0                      OSC database service Helm Chart                   
+https://artifacthub.io/packages/helm/mongodb-he... 1.13.0                                               MongoDB Kubernetes Enterprise Database.           
+https://artifacthub.io/packages/helm/lsst-sqre/... 2.1.0                     1.0.0                      Archival database of alerts sent through the al...
+.....
+```
+
+You can also add external repo often by searching <https://artificathub.io/>:
+
+```sh
+#adding ealenn repo
+helm repo add ealenn https://ealenn.github.io/charts
+
+helm repo update
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "ealenn" chart repository
+...Successfully got an update from the "cilium" chart repository
+Update Complete. ⎈Happy Helming!⎈
+```
+
+we will now install the tester echo-server in the ealenn repo:
+
+```sh
+helm upgrade -i tester ealenn/echo-server --debug
+
+history.go:56: [debug] getting history for release tester
+Release "tester" does not exist. Installing it now.
+install.go:173: [debug] Original chart version: ""
+install.go:190: [debug] CHART PATH: /home/student/.cache/helm/repository/echo-server-0.5.0.tgz
+client.go:122: [debug] creating 4 resource(s)
+NAME: tester
+```
+
+View the chart history (using -a shows all even the failed):
+
+```sh
+helm list
+NAME   NAMESPACE REVISION UPDATED                                 STATUS   CHART             APP VERSION
+tester default   1        2025-04-19 16:36:19.006451824 +0000 UTC deployed echo-server-0.5.0 0.6.0
+```
+
+Delete the tester chart:
+
+```sh
+helm uninstall tester
+release "tester" uninstalled
+```
+
+all resources are deleted and helm list shows empty:
+
+```sh
+helm list -a
+NAME NAMESPACE REVISION UPDATED STATUS CHART APP VERSION
+```
+
+The chart is still here compressed:
+
+```sh
+find $HOME -name *echo*
+/root/.cache/helm/repository/echo-server-0.5.0.tgz
+```
+
+lets untar it and check the directory structure:
+
+```sh
+cd /root/.cache/helm/repository/ ; tar -xvf echo-server-*
+echo-server/Chart.yaml
+echo-server/values.yaml
+echo-server/templates/_helpers.tpl
+echo-server/templates/configmap.yaml
+echo-server/templates/deployment.yaml
+echo-server/templates/ingress.yaml
+echo-server/templates/service.yaml
+echo-server/templates/serviceaccount.yaml
+echo-server/templates/tests/test-connection.yaml
+echo-server/.helmignore
+echo-server/README.md
+echo-server/README.md.gotmpl
+```
+
+Instead of installing directly a chart, you can dll it and modify it before, lets first add a repo
+
+```sh
+#adding bitnami repo
+helm repo add bitnami https://charts.bitnami.com/bitnami
+"bitnami" has been added to your repositories
+#updating local repo to take in consideration
+helm repo update
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "ealenn" chart repository
+...Successfully got an update from the "cilium" chart repository
+...Successfully got an update from the "bitnami" chart repository
+Update Complete. ⎈Happy Helming!⎈
+
+#downloading bitnami apache chart locally:
+helm fetch bitnami/apache --untar
+cd apache
+ll
+-rw-r--r--  1 root root   376 Apr 19 17:12 .helmignore
+-rw-r--r--  1 root root   226 Apr 19 17:12 Chart.lock
+-rw-r--r--  1 root root  1100 Apr 19 17:12 Chart.yaml
+-rw-r--r--  1 root root 67848 Apr 19 17:12 README.md
+drwxr-xr-x  3 root root  4096 Apr 19 17:12 charts/
+drwxr-xr-x  3 root root  4096 Apr 19 17:12 files/
+drwxr-xr-x  2 root root  4096 Apr 19 17:12 templates/
+-rw-r--r--  1 root root  1345 Apr 19 17:12 values.schema.json
+-rw-r--r--  1 root root 34035 Apr 19 17:12 values.yaml
+```
+
+Now once we are inside the chart dir we can install by providing a name
+
+```sh
+helm install omarweb .
+NAME: omarweb
+LAST DEPLOYED: Sat Apr 19 17:23:28 2025
+NAMESPACE: default
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+CHART NAME: apache
+CHART VERSION: 11.3.5
+APP VERSION: 2.4.63
+
+** Please be patient while the chart is being deployed **
+
+1. Get the Apache URL by running:
+
+** Please ensure an external IP is associated to the omarweb-apache service before proceeding **
+** Watch the status using: kubectl get svc --namespace default -w omarweb-apache **
+
+  export SERVICE_IP=$(kubectl get svc --namespace default omarweb-apache --template "{{ range (index .status.loadBalancer.ingress 0) }}{{ . }}{{ end }}")
+  echo URL            : http://$SERVICE_IP/
+
+WARNING: You did not provide a custom web application. Apache will be deployed with a default page. Check the README section "Deploying your custom web application" in https://github.com/bitnami/charts/blob/main/bitnami/apache/README.md#deploying-a-custom-web-application.
+
+WARNING: There are "resources" sections in the chart not set. Using "resourcesPreset" is not recommended for production. For production installations, please set the following values according to your workload needs:
+  - resources
++info https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+```
+
+uninstall:
+
+```sh
+#unsintalling omarweb
+helm uninstall omarweb
+release "omarweb" uninstalled
+```
+
+**Kustomize TP**
+In order to work with kustomize, we need to create the dir tree
+
+```sh
+#creating the directories
+mkdir -p myapp/base myapp/overlays/dev myapp/overlays/prod
+tree myapp
+myapp
+├── base
+└── overlays
+    ├── dev
+    └── prod
+
+#we copy the files from the TP to work with them
+cp /home/omarbistami/LFCourse/LFS258/SOLUTIONS/s_08/*.yaml-base myapp/base/
+cp /home/omarbistami/LFCourse/LFS258/SOLUTIONS/s_08/*.yaml-dev myapp/overlays/dev
+cp /home/omarbistami/LFCourse/LFS258/SOLUTIONS/s_08/*.yaml-prod myapp/overlays/prod
+
+#we rename them
+cd $HOME/myapp/base && for file in *.yaml-base; do mv "$file" "${file/-base/}"; done
+cd $HOME/myapp/overlays/dev && for file in *.yaml-dev; do mv "$file" "${file/-dev/}"; done
+cd $HOME/myapp/overlays/prod && for file in *.yaml-prod; do mv "$file" "${file/-prod/}"; done
+
+
+#final result
+tree myapp
+myapp
+├── base
+│   ├── deployment.yaml
+│   ├── kustomization.yaml
+│   └── service.yaml
+└── overlays
+    ├── dev
+    │   ├── deployment-patch.yaml
+    │   ├── kustomization.yaml
+    │   └── service-patch.yaml
+    └── prod
+        ├── deployment-patch.yaml
+        ├── kustomization.yaml
+        └── service-patch.yaml
+```
+
+The `kustomize.yaml` file defines the resource to be deployed:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namePrefix: lf-
+resources:
+- deployment.yaml
+- service.yaml
+labels:
+- includeSelectors: true
+  pairs:
+    company: linux-foundation
+```
+
+Using `kubectl kustomize myapp/base` we can view the full configuration:
+
+```sh
+kubectl kustomize myapp/base/
+```
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: myapp
+    company: linux-foundation
+  name: lf-myapp
+spec:
+  ports:
+  - name: 80-80
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: myapp
+    company: linux-foundation
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: myapp
+    company: linux-foundation
+  name: lf-myapp
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: myapp
+      company: linux-foundation
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: myapp
+        company: linux-foundation
+    spec:
+      containers:
+      - image: nginx
+        name: nginx
+```
+
+Adding the dev overlay:
+
+```sh
+kubectl kustomize myapp/overlays/dev
+```
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: myapp
+    company: linux-foundation
+  name: lf-myapp
+spec:
+  ports:
+  - name: 80-80
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: myapp
+    company: linux-foundation
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: myapp
+    company: linux-foundation
+  name: lf-myapp
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: myapp
+      company: linux-foundation
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: myapp
+        company: linux-foundation
+    spec:
+      containers:
+      - image: nginx
+        name: nginx
+```
+
+and same for `kubectl kustomize myapp/overlays/prod`
+
+if you want to check the diff between prod and dev:
+
+```sh
+kubectl kustomize myapp/overlays/prod > omar_kuztomise_output.yaml
+kubectl kustomize myapp/overlays/dev > omar_kuztomise1_output.yaml
+diff omar_kuztomise_output.yaml omar_kuztomise1_output.yaml
+18c18
+<   type: LoadBalancer
+---
+>   type: NodePort
+29c29
+<   replicas: 3
+---
+>   replicas: 2
+43c43
+<       - image: nginx:1.22
+---
+>       - image: nginx
+```
+
+Now we can apply:
+
+```sh
+kubectl apply -k myapp/base
+service/lf-myapp created
+deployment.apps/lf-myapp created
+```
+
+```sh
+#we get all resource created with label company=linux-foundation(key value)
+kubectl get all -l company=linux-foundation
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/lf-myapp-5b68c7d779-7q48s   1/1     Running   0          3m51s
+pod/lf-myapp-5b68c7d779-p9kkv   1/1     Running   0          3m51s
+
+NAME               TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+service/lf-myapp   ClusterIP   10.106.24.113   <none>        80/TCP    3m51s
+
+NAME                       READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/lf-myapp   2/2     2            2           3m51s
+
+NAME                                  DESIRED   CURRENT   READY   AGE
+replicaset.apps/lf-myapp-5b68c7d779   2         2         2       3m51s
+```
+
+we now patch with dev configuration:
+
+```sh
+kubectl apply -k myapp/overlays/dev
+```
+
+we check:
+
+```sh
+kubectl get all -l company=linux-foundation
+#configuration has been updated
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/lf-myapp-5b68c7d779-7q48s   1/1     Running   0          8m25s
+pod/lf-myapp-5b68c7d779-p9kkv   1/1     Running   0          8m25s
+
+NAME               TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
+service/lf-myapp   NodePort   10.106.24.113   <none>        80:32547/TCP   8m25s
+
+NAME                       READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/lf-myapp   2/2     2            2           8m25s
+
+NAME                                  DESIRED   CURRENT   READY   AGE
+replicaset.apps/lf-myapp-5b68c7d779   2         2         2       8m25s
+```
+
+Now we clean and delete all resource:
+
+```sh
+kubectl delete -k myapp/overlays/dev
+service "lf-myapp" deleted
+deployment.apps "lf-myapp" deleted
+```
+
+we check:
+
+```sh
+kubectl get all -l company=linux-foundation
+No resources found in default namespace.
+```
+
+-----
+
+## VOLUMES AND DATA
+
+A volume in Kubernetes persists for the lifetime of a Pod, not just the container, so data remains available even if containers within the Pod restart. A Kubernetes volume is essentially a directory—potentially pre-populated—that is mounted into one or more containers within a Pod.
+
+Kubernetes supports a wide range of volume types, such as RBD for Ceph integration, NFS, and dynamic volumes from cloud providers like Google’s `gcePersistentDisk`.
+
+The Container Storage Interface (CSI) is a standard API that allows Kubernetes to manage storage systems in a consistent, pluggable way. Most current volume plugins are "in-tree" (built into Kubernetes), but the move to "out-of-tree" plugins lets storage vendors provide their own drivers independently, increasing flexibility and security. This shift will replace the older, less secure Flex plugin.
+
+If you need storage that outlives a Pod, use Persistent Volumes (PVs). PVs can be empty or pre-populated and are claimed by Pods using Persistent Volume Claims (PVCs). This allows data to persist beyond the lifecycle of any single Pod, enabling reuse by other Pods or for later retrieval.
+
+Kubernetes provides two API objects for injecting data into Pods: **Secrets** for encoded sensitive data (like SSH keys or passwords) and **ConfigMaps** for non-sensitive configuration data (such as configuration files like `/etc/hosts`).
+
+A Pod can declare volumes with a name, type, and mount point. Volumes can be shared by containers in a Pod or by multiple Pods with write access. Without external locking, data corruption may occur.(you need to manage this part):
+
+![Kubernetes Pod Volumes](njibb9wicexq-KubernetesPodVolumes.png)
+
+When a Pod requests storage, it specifies an access mode. Available volumes are grouped by access mode and sorted by size (smallest to largest). The claim is matched against each volume in the appropriate group until a large enough volume is found. The three access modes are:
+
+![Access Mode](persistent-volume-access-modes.png)
+
+- **ReadWriteOnce (RWO)**: Mounted read-write by one node only. Common for block storage (like AWS EBS, GCE Persistent Disk) and single-node apps needing exclusive access.
+- **ReadOnlyMany (ROX)**: Mounted read-only by many nodes. Good for sharing static data or configs across pods.
+- **ReadWriteMany (RWX)**: Mounted read-write by many nodes. Ideal for shared storage where multiple pods read/write concurrently (like NFS or certain cloud file systems).
+
+For example, two Pods on the same node can share a `ReadWriteOnce` volume, but a Pod on a different node cannot attach to it and will receive a `FailedAttachVolume` error.
+
+k8s always tries to match the requested mode exactly, but may grant more access—never less:
+*If a Pod requests `ReadWriteOnce`, Kubernetes will use any PersistentVolume that supports at least that mode, including those with `ReadWriteMany`.*
+
+When a volume is requested in Kubernetes, the local kubelet handles the process by using the `kubelet_pods.go` script. It maps the raw devices, creates the necessary mount point for the container, and establishes a symbolic link on the host node's filesystem to connect the storage to the container. The API server then requests storage from the appropriate StorageClass plugin. The exact details of how the backend storage is provisioned depend on the specific plugin being used.
+
+If no specific StorageClass is requested, only the access mode and size parameters are considered. In this case, the volume may be provisioned from any available storage type, with no configuration to control which one is selected.
+
+-----
+
+## Kubernetes Storage Types
+
+### Volumes (Pod-scoped)
+
+- `emptyDir`: Temporary storage for a pod; deleted when pod ends
+- `hostPath`: Mounts a file or directory from the host node (`DirectoryOrCreate` or `FileOrCreate` will Create Dir or File if not exist)
+- `configMap`: Mounts configuration data as files
+- `secret`: Mounts sensitive data (e.g., passwords, tokens)
+- `downwardAPI`: Exposes pod info (e.g., labels, annotations) to containers
+- `projected`: Combines several volume sources into one
+- `ephemeral`: Creates a PVC automatically per pod (short-lived)
+
+### Persistent Volumes (PV) and PersistentVolumeClaims (PVC)
+
+Durable storage abstracted from physical storage backend.
+
+#### Common Volume Plugins
+
+- `awsElasticBlockStore`
+- `gcePersistentDisk`
+- `azureDisk`
+- `azureFile`
+- `nfs`
+- `iscsi`
+- `glusterfs`
+- `cephfs`
+- `local`: Mounts storage physically present on the node
+
+### CSI (Container Storage Interface)
+
+Modern extensible system to plug in external storage providers.
+
+#### Examples
+
+- `pd.csi.storage.gke.io` (Google PD)
+- `ebs.csi.aws.com` (AWS EBS)
+- `disk.csi.azure.com` (Azure Disk)
+- `longhorn.io`
+- `rook-ceph.rbd.csi.ceph.com`
+- `openebs.io`
+
+> CSI replaces in-tree plugins and is the recommended way for dynamic provisioning.
+
+### Volume Modes
+
+- `Filesystem` (default): Mount as a regular filesystem
+- `Block`: Expose as raw block device
+
+### Notes
+
+- Use PVC to request PV dynamically using a StorageClass.
+- Use CSI for cloud-native and cloud-independent storage management.
+- Avoid `hostPath` for production due to tight node coupling.
+
+Example of `emptydir`, creating pod that will create a pod with name scratch-volume, that will create /scratch inside the container:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fordpinto 
+  namespace: default
+spec:
+  containers:
+  - image: simpleapp 
+    name: gastank 
+    command:
+    - sleep
+    - "3600"
+    volumeMounts:
+    - mountPath: /scratch
+      name: scratch-volume
+  volumes:
+  - name: scratch-volume
+    emptyDir: {}
+```
+
+**Shared Volume**
+
+Both container `alphacont` and `betacont` in this pod access the same volume:
+
+```yaml
+....
+   containers:
+   - name: alphacont
+     image: busybox
+     volumeMounts:
+     - mountPath: /alphadir
+       name: sharevol
+   - name: betacont
+     image: busybox
+     volumeMounts:
+     - mountPath: /betadir
+       name: sharevol
+   volumes:
+   - name: sharevol
+     emptyDir: {}
+```
+
+Now lets look at the output of this commands:
+
+```sh
+$ kubectl exec -ti exampleA -c betacont -- touch /betadir/foobar
+$ kubectl exec -ti exampleA -c alphacont -- ls -l /alphadir
+
+total 0
+-rw-r--r-- 1 root root 0 Nov 19 16:26 foobar
+```
+
+In this example, a file named `foobar` is created in the `/betadir` directory of the `betacont` container. When listing the contents of the `/alphadir` directory in the `alphacont` container, the same file is visible. This happens because both containers are mounting the same shared volume (`sharevol`), even though they use different mount paths.
+
+**Important Note:** Since the volume is shared, data written by one container is immediately accessible to the other. This can lead to potential data corruption if both containers attempt to write to the volume simultaneously. It is the responsibility of the application developer to implement proper locking mechanisms or other safeguards to prevent such issues.
+
+**PV & PVC**
+
+A `Persistent Volume (PV)` is a storage abstraction designed to retain data beyond the lifecycle of the Pod using it. Pods request storage by defining a `PersistentVolumeClaim (PVC)`, specifying parameters such as size and, optionally, the type of backend storage through a StorageClass. The cluster then binds the PVC to an available Persistent Volume.
+
+- **PV (Persistent Volume)**: A piece of storage in the cluster, provisioned by an admin or dynamically.
+- **PVC (Persistent Volume Claim)**: A request for storage by a user or pod.
+
+Kubernetes dynamically utilizes available volumes, regardless of their storage type, enabling claims across various backend storage systems.
+
+**Persistent Storage Phases**
+
+PVC Phases:
+
+- **Pending**: Waiting for a matching PV to become available.
+- **Bound**: Successfully matched and bound to a PV.
+- **Lost**: The underlying PV is deleted or cannot be found.
+
+PV Phases:
+
+- **Provision**: Provisioning uses pre-created PVs or dynamically requested ones, e.g., from a cloud provider.
+- **Bind**: Binding happens when the control loop on CP detects a PVC with storage, access requests, and optionally a StorageClass. It finds a matching PV or waits for the provisioner to create one. The PV must meet or exceed the requested storage.
+- **Use**: The use phase begins when the bound volume is mounted for the Pod to use, which continues as long as the Pod requires.
+- **Release**: Releasing occurs when the Pod finishes using the volume, and the PVC is deleted via an API request. The volume remains in its current state until claimed again, with data retention depending on the `persistentVolumeReclaimPolicy`.
+- **Reclaim**: has tree option:
+  - **Retain**: keep the data intact and allowing for administrator to handle the storage and data.
+  - **Delete**: tell the volume plugin to delete the API object as well as the storage behind it.
+  - **Recycle**: runs a rm -rf /mountpoint and then make availble to a new claim but with the stability of dynamic provisiong thi will depricated.
+
+Some kubectl command to remember:
+
+```sh
+kubectl get pv
+kubectl get pvc
+```
+
+Example of persistant volume that outlive the pod:
+
+```yaml
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: 10Gpv01
+  labels: 
+    type: local 
+spec:
+  capacity: 
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/somepath/data01"
+```
+
+Persistent Volumes (PVs) are cluster-wide resources, while Persistent Volume Claims (PVCs) are namespace-scoped. Kubernetes supports static provisioning of Raw Block Volumes (beta since v1.13) and stable local storage for low-latency, high-performance needs like databases. Supported plugins include AWS EBS, Azure Disk, and more.
+
+PVC Claim example:
+
+```yaml
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: myclaim
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8GI
+```
+
+use it in pod:
+
+```yaml
+spec:
+  containers:
+....
+  volumes:
+  - name: test-volume
+    persistentVolumeClaim:
+      claimName: myclaim
+```
+
+can be as complex as:
+
+```yaml
+volumeMounts:
+    - name: Cephpd
+      mountPath: /data/rbd
+  volumes:
+  - name: rbdpd
+    rbd:
+      monitors:
+      - '10.19.14.22:6789'
+      - '10.19.14.23:6789'
+      - '10.19.14.24:6789'
+      pool: k8s
+      image: client
+      fsType: ext4
+      readOnly: true
+      user: admin
+      keyring: /etc/ceph/keyring
+```
+
+**Dynamic Provisioning**
+
+Kubernetes simplifies storage management with Dynamic Provisioning, introduced in v1.4. This feature lets the cluster automatically request storage from a pre-configured source using API calls through the appropriate plugin.
+
+The `StorageClass` resource allows administrators to define storage provisioners with specific parameters. Once a StorageClass is set up, users can create claims that are automatically fulfilled by the API Server. The storage is also reclaimed based on the provider's configuration.
+
+Popular dynamic storage options include AWS, GCE, Ceph, and iSCSI. A default StorageClass can be set using annotations, example using GCE:
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast      # Could be any name
+provisioner: kubernetes.io/gce-pd
+parameters:
+  type: pd-ssd ​
+```
+
+**Rook Projet**
+Rook enables storage orchestration in the Cloud using various storage providers.
+It uses custom resource definitions (CRDs) and an operator to manage storage based on the backend type.
+Supported providers include:
+
+- Ceph
+- Cassandra
+- NFS
+
+## Secrets
+
+Pods can use volumes to access local data, but sensitive information like passwords should be protected. Kubernetes Secrets help manage such data securely.
+
+To create a Secret with kubectl:
+
+```bash
+kubectl create secret generic mysql --from-literal=password=root
+```
+
+By default, Secrets are base64-encoded, not encrypted. To encrypt them, set up an `EncryptionConfiguration` with a key and enable it on the kube-apiserver using the `--encryption-provider-config` flag. After enabling encryption, recreate all Secrets to store them securely.
+
+```yaml
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+  - resources:
+      - secrets
+    providers:
+      - aescbc:
+          keys:
+            - name: key1
+              secret: <base64-encoded-32-byte-key>
+      - identity: {}
+```
+
+```sh
+# Replace <base64-encoded-32-byte-key> with a base64-encoded 32-byte key. You can generate one with:
+head -c 32 /dev/urandom | base64
+```
+
+Edit the kube-apiserver startup args (usually in /etc/kubernetes/manifests/kube-apiserver.yaml) and add:
+
+```yaml
+#Make sure the config file is mounted there and restart all apiserver!
+--encryption-provider-config=/etc/kubernetes/encryption-config.yaml
+```
+
+```sh
+#backup your secret and rencrypth them:
+kubectl get secrets --all-namespaces -o json | kubectl replace -f -
+```
+
+You can use multiple keys for encryption. During decryption, all keys are tried, but the first key of the first provider is used for encryption. To rotate keys, add a new key, restart kube-apiserver, and recreate all Secrets.
+
+Secrets can be decoded with kubectl and used as environment variables or mounted as files in a volume. You can also manually create a Secret and include it in a YAML file.
+
+**Using Secret**
+
+- ***Using secret as env variable:***
+
+```yaml
+...
+spec:
+  containers:
+  - image: mysql:5.5
+    name: dbpod
+    env:
+      - name: MYSQL_ROOT_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: mysql
+            key: password 
+```
+
+Secrets have no limit in number but are capped at 1MB each. They use memory and tmpfs storage on the host. A secret must exist before being requested by a Pod, and all volumes must be mounted before containers start.
+
+- ***Mounting Secret as Volume:***
+You can mount secrets as files using a volume definition. The mount path will contain a file whose name will be the key of the secret created with the kubectl create secret step earlier.
+
+```bash
+kubectl create secret generic mysql --from-literal=password=root
+```
+
+```yaml
+...
+  spec:
+    containers:
+    - image: busybox
+      command:
+      - sleep
+      - "3600"
+      volumeMounts:
+      - mountPath: /mysqlpassword
+        name: mysql
+      name: busy
+    volumes:
+    - name: mysql
+      secret:
+        secretName: mysql
+```
+
+To check if the secrect is there:
+
+```sh
+kubectl exec -ti busybox -- cat /mysqlpassword/password
+
+LFTr@1n
+```
+
+## ConfigMAP
+
+A ConfigMap is like a Secret but stores unencoded data. It helps separate container images from configuration.
+ConfigMaps hold key-value pairs or plain configuration files. Data can come from files, directories, or literal values.
+You can use a ConfigMap in various ways: as environment variables, to pass values to pod commands, or as files in a Volume. Cluster components like controllers can also use them.
+
+Lets say you have `config.js` file, you can create a `ConfigMap`that contains this file, in the `configmap` ***object*** the file content will be stored in the data section of the object:
+
+```sh
+kubectl get configmap foobar -o yaml
+```
+
+```yaml
+kind: ConfigMap
+apiVersion: v1
+metadata:
+    name: foobar
+data:
+    config.js: |
+         {
+...
+```
+
+ConfigMaps can be utilized in multiple ways:
+
+- Inject values as environment variables into Pods (from one or more ConfigMaps).
+- Reference ConfigMap values in Pod commands.
+- Mount ConfigMap data as a Volume.
+- Map specific ConfigMap data to a designated path within a Volume.
+- Customize file names and access permissions in a Volume using ConfigMap data.
+- Serve as a configuration source for system components and controllers.
+
+ConfigMaps can be used as environment variables or mounted as volumes. They must exist before use unless optional and are tied to a specific namespace.
+
+example:
+
+- **Inject values as environment variables into Pods (from one or more ConfigMaps):**
+
+    ```yaml
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+        name: example-config
+    data:
+        APP_ENV: production
+
+    ---
+    apiVersion: v1
+    kind: Pod
+    metadata:
+        name: example-pod
+    spec:
+        containers:
+        - name: app-container
+            image: nginx
+            envFrom:
+            - configMapRef:
+                    name: example-config
+    ```
+
+- **Reference ConfigMap values in Pod commands:**
+
+    ```yaml
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+        name: example-config
+    data:
+        APP_ENV: production
+
+    ---
+    apiVersion: v1
+    kind: Pod
+    metadata:
+        name: example-pod
+    spec:
+        containers:
+        - name: app-container
+            image: nginx
+            command: ["/bin/sh", "-c", "echo $(APP_ENV)"]
+            env:
+            - name: APP_ENV
+                valueFrom:
+                    configMapKeyRef:
+                        name: example-config
+                        key: APP_ENV
+    ```
+
+- **Mount ConfigMap data as a Volume:**
+
+    ```yaml
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+        name: example-config
+    data:
+        config-file: |
+            key=value
+
+    ---
+    apiVersion: v1
+    kind: Pod
+    metadata:
+        name: example-pod
+    spec:
+        containers:
+        - name: app-container
+            image: nginx
+            volumeMounts:
+            - name: config-volume
+                mountPath: /etc/config
+        volumes:
+        - name: config-volume
+            configMap:
+                name: example-config
+    ```
+
+- **Map specific ConfigMap data to a designated path within a Volume:**
+
+    ```yaml
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+        name: example-config
+    data:
+        app.properties: |
+            key=value
+
+    ---
+    apiVersion: v1
+    kind: Pod
+    metadata:
+        name: example-pod
+    spec:
+        containers:
+        - name: app-container
+            image: nginx
+            volumeMounts:
+            - name: config-volume
+                mountPath: /etc/config/app.properties
+                subPath: app.properties
+        volumes:
+        - name: config-volume
+            configMap:
+                name: example-config
+    ```
+
+- **Customize file names and access permissions in a Volume using ConfigMap data:**
+
+    ```yaml
+    # Mounts the app.properties file into the container
+    # Renames it to custom-name.properties inside /etc/config
+    # Useful for customizing filenames or restricting access to specific keys in large ConfigMaps
+
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+        name: example-config
+    data:
+        app.properties: |
+            key=value
+
+    ---
+    apiVersion: v1
+    kind: Pod
+    metadata:
+        name: example-pod
+    spec:
+        containers:
+        - name: app-container
+            image: nginx
+            volumeMounts:
+            - name: config-volume
+                mountPath: /etc/config
+        volumes:
+        - name: config-volume
+            configMap:
+                name: example-config
+                items:
+                - key: app.properties
+                    path: custom-name.properties
+    ```
+
+- **Serve as a configuration source for system components and controllers:**
+
+    ```yaml
+    # subPath allows mounting a single file from a ConfigMap instead of the whole directory.
+    # Ensure your ConfigMap contains a key named config.conf
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+        name: kube-proxy-config
+        namespace: kube-system
+    data:
+        config.conf: |
+            apiVersion: kubeproxy.config.k8s.io/v1alpha1
+            kind: KubeProxyConfiguration
+            mode: "iptables"
+
+    ---
+    apiVersion: v1
+    kind: DaemonSet
+    metadata:
+    name: kube-proxy
+    namespace: kube-system
+    spec:
+    selector:
+        matchLabels:
+        name: kube-proxy
+    template:
+        metadata:
+        labels:
+            name: kube-proxy
+        spec:
+        containers:
+        - name: kube-proxy
+            image: k8s.gcr.io/kube-proxy:v1.27.0
+            volumeMounts:
+            - name: config-volume
+            mountPath: /var/lib/kube-proxy/config.conf
+            subPath: config.conf
+        volumes:
+        - name: config-volume
+            configMap:
+            name: kube-proxy-config
+
+    ```
