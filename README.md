@@ -4075,6 +4075,98 @@ Supported providers include:
 - Cassandra
 - NFS
 
+
+Here an example of **Dynamic Provisioning** using `StorageClass`:
+```yaml
+allowVolumeExpansion: true
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: my-own-sc
+provisioner: dobs.csi.digitalocean.com
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+```
+```sh
+kubectl apply -f my-storage-class.yaml
+```
+
+We then create a PVC (PersistantVolumeClaim):
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: myclaim
+spec:
+  storageClassName: my-own-sc #StorageClass Indicated
+  accessModes:
+    - ReadWriteOnce # the volume can be mounted as read-write by a single node.
+  resources:
+    requests:
+      storage: 1Gi
+  volumeMode: Filesystem # Filesystem is the default mode used when volumeMode parameter is omitted. 
+  # A volume with volumeMode: Filesystem is mounted into Pods into a directory. If the volume is backed by a block device and the device is empty, Kubernetes creates a filesystem on the device before mounting it for the first time.
+  # You can set the value of volumeMode to Block to use a volume as a raw block
+```
+
+We call it the PVC inside a Deployement:
+```yaml
+...
+    spec:
+      containers:
+      - name: alpine-writer
+        image: alpine
+        command: ["/bin/sh", "-c", "while true; do echo $(date) >> /mnt/data/date.txt; sleep 1; done"]
+        volumeMounts:
+        - name: data-volume
+          mountPath: /mnt/data
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: myclaim
+```
+```sh
+kubectl apply -f deployment.yaml
+```
+
+Now lets check what has been create:
+```sh
+kubectl get po,pvc,sc,pv
+NAME                                 READY   STATUS    RESTARTS   AGE
+pod/alpine-writer-64d6695c8b-2tb5j   1/1     Running   0          6m33s
+
+NAME                            STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/myclaim   Bound    pvc-981e63dc-ffb5-474e-b62a-53b79fa77b25   1Gi        RWO            my-own-sc      <unset>                 6m33s
+
+NAME                                                      PROVISIONER                 RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+storageclass.storage.k8s.io/my-own-sc                     dobs.csi.digitalocean.com   Retain          Immediate           true                   6d2h
+
+NAME                                                        CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM             STORAGECLASS   VOLUMEATTRIBUTESCLASS   REASON   AGE
+persistentvolume/pvc-981e63dc-ffb5-474e-b62a-53b79fa77b25   1Gi        RWO            Retain           Bound    default/myclaim   my-own-sc      <unset>                          7m23s
+```
+
+Note if we delete the deployement, the PV will be stay be cause of `reclaimPolicy: Retain`
+```sh
+#deleting deploy
+kubectl delete deploy alpine-writer                 
+deployment.apps "alpine-writer" deleted
+#deleting pvc
+kubectl delete pvc myclaim                                
+persistentvolumeclaim "myclaim" deleted
+```
+
+but pv still here:
+```sh
+#pv still here and need to be delete manuallay by admin
+kubectl get pv            
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS     CLAIM             STORAGECLASS   VOLUMEATTRIBUTESCLASS   REASON   AGE
+pvc-981e63dc-ffb5-474e-b62a-53b79fa77b25   1Gi        RWO            Retain           Released   default/myclaim   my-own-sc      <unset>                          11m
+```
+Here is a schema explaning globaly how it works
+
+![StorageK8S](pvpvcStorageClass.gif)
+
+
 ## Secrets
 
 Pods can use volumes to access local data, but sensitive information like passwords should be protected. Kubernetes Secrets help manage such data securely.
