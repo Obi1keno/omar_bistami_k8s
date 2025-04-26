@@ -4811,3 +4811,793 @@ persistentvolumeclaim "pvc-one" deleted
 ```
 
 
+# SERVICES
+
+Kubernetes uses transient, decoupled objects. Services connect Pods or provide external access, allowing Pods to be replaced seamlessly. Labels help reconnect new Pods, and Endpoints route traffic. Google’s Extensible Service Proxy (ESP) offers more flexibility but is mainly used in Google environments.
+
+There are multiple service types, each exposing resources internally or externally. Services can also link internal resources to external ones, like third-party databases.
+
+The kube-proxy agent monitors the API for new services and endpoints, opens random ports, and redirects traffic to service endpoints.
+
+Services offer automatic load-balancing based on labels, with optional session affinity. Headless services can be configured without a fixed IP or load-balancing.
+
+Unique IPs are managed via etcd, and Services use iptables for routing, with potential for other technologies in the future.
+
+Labels determine which Pods receive traffic from a Service. Since labels can be updated dynamically, changing them may affect which Pods are selected by the Service.
+
+By default, Kubernetes uses a rolling deployment strategy: new Pods with updated application versions are gradually added, and traffic is automatically load balanced between old and new Pods. This ensures continuous availability during updates.
+
+However, if different application versions are incompatible—meaning clients may have issues communicating with multiple versions—you should use more specific labels, such as including a version number.
+
+**Basic Steps to access a new service**
+
+```sh
+# expose
+$ kubectl expose deployment/nginx --port=80 --type=NodePort
+# check
+$ kubectl get svc
+NAME        TYPE       CLUSTER-IP  EXTERNAL-IP  PORT(S)        AGE
+kubernetes  ClusterIP  10.0.0.1    <none>       443/TCP        18h
+nginx       NodePort   10.0.0.112  <none>       80:31230/TCP   5s
+#get
+$ kubectl get svc nginx -o yaml
+apiVersion: v1
+kind: Service
+...
+spec:
+    clusterIP: 10.0.0.112
+    ports:
+    - nodePort: 31230
+...
+```
+>>Open browser http://Public-IP:31230. (nodeport type => ip of the machine/node)
+
+`kubectl expose` creates a Service for the nginx Deployment, exposing port 80 by default and assigning a random NodePort. You can set `port` and `targetPort` to control traffic routing; `targetPort` can also reference a named port in the Pod spec. `kubectl get svc` lists all Services, including the new nginx Service (default type: ClusterIP). ClusterIP and NodePort ranges are configurable. Services can target resources in other namespaces or external endpoints.
+
+### Kubernetes Service Types
+
+#### ClusterIP (default): **Exposes the service on an internal IP address within the cluster**
+- Accessible only from within the cluster.
+- The range of ClusterIP addresses is defined via an API server startup option.
+
+#### NodePort: **Exposes the service on each Node’s IP at a static port.**
+- Useful for debugging or when a fixed port is needed (e.g., opening a firewall).
+- The NodePort range is set in the cluster configuration.
+- Traffic to `<NodeIP>:<NodePort>` is forwarded to the service.
+
+#### LoadBalancer: **Integrates with cloud providers to provision an external load balancer.**
+- Automatically assigns a public IP address to the service.
+- Distributes incoming traffic across the Pods in the deployment.
+- Supported by cloud providers like GKE, AWS, and via plugins for private clouds (e.g., CloudStack, OpenStack).
+- Even without a cloud provider, the service is made available to public traffic.
+
+#### ExternalName: **Maps the service to an external DNS name.**
+- Does not use selectors, ports, or endpoints.
+- Returns a CNAME record redirecting traffic at the DNS level, not via proxying.
+- Useful for referencing external services not yet migrated to the cluster.
+
+
+> The `kubectl proxy` command starts a local HTTP proxy server, allowing you to securely access Kubernetes ClusterIP services from your local machine. This is especially helpful for troubleshooting, development, or accessing the Kubernetes API without exposing services externally.
+
+Kubernetes Services are essential components thatexpose pods to network traffic, they build upon each other to provide connectivity:
+
+- **Service Controller**: Runs inside the `kube-controller-manager` and manages Service resources by communicating with the `kube-apiserver`.
+- **Network Plugin** (e.g., Cilium): Configures the underlying network and enforces network policies.
+- **kube-proxy**: Runs on every node, setting up network rules (using `iptables` or `ipvs`) to route traffic to the correct pods.
+- **Endpoint Controller**: Monitors pod IP changes and updates Service endpoints accordingly to keep a fixed ip for service. (Ephemeral IP in pod created/destroyed > fixed ip for service)
+
+
+- **ClusterIP** service assigns a stable internal IP address within the Kubernetes cluster, routing traffic to the appropriate pods. This service type only handles traffic originating from within the cluster.
+
+- **NodePort** service builds on ClusterIP by exposing the service on a static port (typically in the 30000–32767 range) on each node’s IP. When a NodePort is created, Kubernetes first provisions a ClusterIP, then allocates a port and configures firewall rules so that traffic to this port on any node is forwarded to the ClusterIP, and subsequently to the pods.
+
+- **LoadBalancer** service further extends NodePort by requesting an external load balancer from the underlying cloud provider. Kubernetes creates a NodePort and makes an asynchronous request for a load balancer. If the infrastructure supports it (e.g., on public clouds), an external load balancer is provisioned and traffic is routed to the NodePort. Otherwise, the service remains in a Pending state.
+
+- **Ingress controller** is a specialized pod that manages external access to services, typically via HTTP/HTTPS. It listens on a high port and routes incoming requests to services based on URL paths or hostnames. Ingress controllers are not built-in services, but are commonly deployed to centralize and manage external traffic to multiple services.
+
+
+![Service Relationships](Service_Relationships.png)
+![ServiceRelationships](servicerelationship.jpg)
+
+Controllers in `kube-controller-manager` send API requests to `kube-apiserver`, which are handled by the network plugin (e.g., `cilium-controller`) and node agents (e.g., `cilium-node`). `kube-proxy` manages local firewall rules using `iptables`, `IPVS`, or `userspace`, as set by its configuration.
+
+![kubeproxyiptable](kubeproxyiptable.png)
+
+The diagram shows a multi-container pod with two services receiving traffic via the pod’s IP. An ingress controller forwards traffic to a service, which can be ClusterIP, NodePort, or LoadBalancer.
+
+![Cluster network diagram](clusternetwork1.png)
+
+## Using a Local Proxy for Kubernetes Development
+
+When developing applications or services on Kubernetes, you can use a local proxy to easily interact with the Kubernetes API and access ClusterIP services from your local machine. The `kubectl proxy` command starts a proxy server that listens on a configurable IP address and port (default: `127.0.0.1:8001`). By default, this command captures your shell unless run in the background.
+
+### Starting the Proxy
+
+```sh
+kubectl proxy
+
+Starting to serve on 127.0.0.1:8001
+```
+
+### Accessing Services via the Proxy
+
+With the proxy running, you can access Kubernetes API resources and services using URLs like:
+
+- **Access a service named `ghost` in the `default` namespace:**
+    ```
+    http://localhost:8001/api/v1/namespaces/default/services/ghost
+    ```
+
+- **If the service port has a name (e.g., `http`):**
+    ```
+    http://localhost:8001/api/v1/namespaces/default/services/ghost:http
+    ```
+*reminder*    
+| Feature          | Forward Proxy                    | Reverse Proxy                   |
+|------------------|----------------------------------|---------------------------------|
+| Position         | In front of clients              | In front of servers             |
+| Hides            | Clients (users)                  | Servers (infrastructure)        |
+| Common Use Cases | Anonymity, filtering, bypass     | Load balancing, security        |
+| Example Tool     | Squid, SOCKS5                    | NGINX, Envoy, HAProxy           |
+
+> This approach is useful for testing, debugging, or interacting with services that are not exposed outside the cluster.
+
+## DNS in Kubernetes
+
+Since version 1.13, Kubernetes uses CoreDNS as the default DNS provider for DNS management within the cluster.
+
+When a CoreDNS container starts, it launches a server for each configured DNS zone. Each server can load one or more plugin chains, Clients typically access DNS services through the `kube-dns` service.
+
+CoreDNS includes around thirty built-in plugins that cover most common DNS functionalities, Common plugins provide:
+
+- Metrics for Prometheus monitoring
+- Error logging
+- Health checks and reporting
+- TLS support for securing DNS and gRPC servers
+
+To verify DNS setup in your cluster, run a pod with networking tools and exec into it for DNS lookups.
+
+Use tools like `nslookup`, `dig`, and `nc` for troubleshooting. In Kubernetes, check service labels, selectors, and review `/etc/resolv.conf` and any Network Policies or firewall rules.
+
+
+# SERVICES TP
+
+**Services** (also called *microservices*) are objects that define policies for accessing a logical set of Pods. Services are typically assigned labels, enabling persistent access to resources even when front-end or back-end containers are terminated and replaced.
+
+- **Native applications** can use the Endpoints API to access services.
+- **Non-native applications** can use a Virtual IP-based bridge to reach back-end Pods.
+
+**Service Types:**
+- **ClusterIP** (default): Exposes the service on a cluster-internal IP, making it reachable only within the cluster.
+- **NodePort**: Exposes the service on each node’s IP at a static port. A ClusterIP is also automatically created.
+- **LoadBalancer**: Exposes the service externally using a cloud provider’s load balancer. Both NodePort and ClusterIP are automatically created.
+- **ExternalName**: Maps the service to the value of `externalName` using a CNAME DNS record.
+
+Services enable decoupling, allowing any agent or object to be replaced without interrupting client access to back-end applications.
+
+
+In the first TP we deploy two nginx server:
+```sh
+cat nginx-one.yaml
+```
+```yaml
+# YAML versioned schema
+apiVersion: apps/v1
+# This file defines a Kubernetes Deployment resource
+kind: Deployment
+metadata:
+  name: nginx-one
+  labels:
+    # Label to categorize this deployment within the namespace
+    system: secondary
+    # Namespace where the deployment and its resources will be created
+  namespace: accounting
+spec:
+  selector:
+    matchLabels:
+      # The deployment will manage pods with this label
+      system: secondary
+    # Number of pod replicas to run
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        # Labels provide metadata for identifying and organizing resources.
+        # They are useful for grouping, selecting, and filtering objects.
+        system: secondary
+    spec:
+      # Specification for the containers that will run in the pod
+      containers:
+      - image: nginx:1.20.1 # Docker image to deploy
+        imagePullPolicy: Always # Always pull the latest image version
+        name: nginx # Unique name for this container within the pod
+          # Ports to expose from the container
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+            # Node affinity: schedule pods on nodes with matching labels
+      nodeSelector:
+        system: secondOne
+```
+
+Lets test our formating:
+```sh
+kubectl apply --dry-run=client -f nginx-one.yaml
+deployment.apps/nginx-one created (dry run)
+```
+
+Lets get the labels we have in each node and create our ns
+```sh
+kubectl get nodes --show-labels
+NAME   STATUS   ROLES           AGE   VERSION   LABELS
+cp     Ready    control-plane   44d   v1.32.1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=cp,kubernetes.io/os=linux,node-role.kubernetes.io/control-plane=,node.kubernetes.io/exclude-from-external-load-balancers=
+dp     Ready    <none>          40d   v1.32.1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=dp,kubernetes.io/os=linux
+#creating ns accounting
+kubectl create ns accounting
+namespace/accounting created
+```
+
+Lets now apply our deploy
+```sh
+kubectl apply -f nginx-one.yaml
+deployment.apps/nginx-one created
+```
+
+Checking:
+```sh
+# getting deploy
+kubectl get deploy -n accounting
+NAME        READY   UP-TO-DATE   AVAILABLE   AGE
+nginx-one   0/2     2            0           2m29s
+# getting pod, they are on pending
+kubectl get pod -n accounting
+NAME                         READY   STATUS    RESTARTS   AGE
+nginx-one-7cf678fc5b-49sdj   0/1     Pending   0          2m36s
+nginx-one-7cf678fc5b-lmwf4   0/1     Pending   0          2m36s
+# cause of node selector as shown by describe
+ kubectl -n accounting describe pod nginx-one-7cf678fc5b-49sdj
+......
+Events:
+  Type     Reason            Age    From               Message
+  ----     ------            ----   ----               -------
+  Warning  FailedScheduling  2m58s  default-scheduler  0/2 nodes are available: 2 node(s) didn't match Pod's node affinity/selector. preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.
+```
+
+Lets add label to our DP (worker node):
+```sh
+#labeling node
+kubectl label nodes dp system=secondOne
+node/dp labeled
+#now everything work fines
+kubectl -n accounting get deploy,pod
+NAME                        READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/nginx-one   2/2     2            2           5m43s
+
+NAME                             READY   STATUS    RESTARTS   AGE
+pod/nginx-one-7cf678fc5b-49sdj   1/1     Running   0          5m43s
+pod/nginx-one-7cf678fc5b-lmwf4   1/1     Running   0          5m43s
+#getting pod by using label
+kubectl get pod -A -l system=secondary
+NAMESPACE    NAME                         READY   STATUS    RESTARTS   AGE
+accounting   nginx-one-7cf678fc5b-49sdj   1/1     Running   0          9m15s
+accounting   nginx-one-7cf678fc5b-lmwf4   1/1     Running   0          9m15s
+```
+
+Lets expose our deployement:
+```sh
+kubectl -n accounting expose deployment nginx-one
+service/nginx-one exposed
+kubectl -n accounting get ep nginx-one
+NAME        ENDPOINTS                               AGE
+nginx-one   192.168.1.176:8080,192.168.1.193:8080   14s
+```
+
+Since we expose port 8080, we should curl now:
+```sh
+curl 192.168.1.176:8080
+curl: (7) Failed to connect to 192.168.1.176 port 8080: Connection refused
+```
+> it fails because even if we exposed 8080, the application within listen on 80 by default (nginx), so if we curl to 80:
+```sh
+#it works fine:
+ curl 192.168.1.176:80
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+<style>
+```
+
+Lets modify our deployement:
+```sh
+#delete
+kubectl -n accounting delete deployments.apps nginx-one
+deployment.apps "nginx-one" deleted
+#modify our deploy
+cp:~# edit nginx-one.yaml
+```
+```yaml
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+```
+```sh
+#create again
+kubectl -n accounting create -f nginx-one.yaml
+deployment.apps/nginx-one created
+#check pod/deploy
+kubectl -n accounting get deploy,pod
+NAME                        READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/nginx-one   2/2     2            2           60s
+
+NAME                             READY   STATUS    RESTARTS   AGE
+pod/nginx-one-6b9c6fbb7b-frpxt   1/1     Running   0          60s
+pod/nginx-one-6b9c6fbb7b-tckln   1/1     Running   0          60s
+#check ep
+NAME        ENDPOINTS                               AGE
+nginx-one   192.168.1.139:8080,192.168.1.147:8080   6m34s
+#test curl
+#work on ip directly
+curl 192.168.1.139
+
+<title>Welcome to nginx!</title>
+#works on 80
+curl 192.168.1.139:80
+
+<title>Welcome to nginx!</title>
+#not work on 8080
+root@cp:~# curl 192.168.1.139:8080
+
+curl: (7) Failed to connect to 192.168.1.139 port 8080: Connection refused
+```
+
+In a previous exercise, we deployed a LoadBalancer(at start of course), which automatically created both a ClusterIP and a NodePort. In this exercise, we will focus on deploying a NodePort service directly. While containers are accessible from within the cluster, a NodePort allows you to expose services to external traffic by mapping a port on each node to your service. One reason to use a NodePort instead of a LoadBalancer is that LoadBalancers typically provision external resources from cloud providers, such as GKE or AWS, which may not always be necessary or cost-effective.
+
+**NodePort vs LoadBalancer (K8s)**
+
+- **NodePort**
+  - Exposes service on each node's IP and a fixed port.
+  - Access via `<NodeIP>:<NodePort>`.
+  - No cloud needed, good for dev/testing.
+
+- **LoadBalancer**
+  - Provisions an external IP via cloud provider.
+  - Easiest for public access.
+  - Requires cloud, good for production.
+
+in a previous step we were able to view the nginx page using the internal Pod IP address. Now expose the deployment
+using the --type=NodePort and give it a name.its possible to pass the port as well, which could help with opening ports in the firewall instead of getting random one by K8S:
+
+```sh
+#exposing the service
+kubectl -n accounting expose deployment nginx-one --type=NodePort --name=service-lab
+service/service-lab exposed
+#check if everything created
+kubectl -n accounting get all
+
+NAME                             READY   STATUS    RESTARTS   AGE
+pod/nginx-one-6b9c6fbb7b-5l5tz   1/1     Running   0          15m
+pod/nginx-one-6b9c6fbb7b-hkvg5   1/1     Running   0          15m
+
+NAME                  TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
+service/service-lab   NodePort   10.110.157.41   <none>        80:30131/TCP   14m
+
+NAME                        READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/nginx-one   2/2     2            2           15m
+
+NAME                                   DESIRED   CURRENT   READY   AGE
+replicaset.apps/nginx-one-6b9c6fbb7b   2         2         2       15m
+kubectl -n accounting describe services
+
+Name:                     service-lab
+Namespace:                accounting
+Labels:                   system=secondary
+Annotations:              <none>
+Selector:                 system=secondary
+Type:                     NodePort
+IP Family Policy:         SingleStack
+IP Families:              IPv4
+IP:                       10.110.157.41
+IPs:                      10.110.157.41
+Port:                     <unset>  80/TCP
+TargetPort:               80/TCP
+NodePort:                 <unset>  30131/TCP
+Endpoints:                192.168.1.79:80,192.168.1.147:80
+Session Affinity:         None
+External Traffic Policy:  Cluster
+Internal Traffic Policy:  Cluster
+Events:                   <none>
+```
+
+First we test with internal ip address
+#getting hostname
+kubectl cluster-info
+```sh
+Kubernetes control plane is running at https://k8scp:6443
+CoreDNS is running at https://k8scp:6443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+#curling
+curl http://k8scp:30131
+```
+```html
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+```
+```sh
+#Lets get the external ip
+curl ifconfig.io
+34.155.199.133
+#you can curl or use on browser
+curl http://34.155.199.133:30131/
+```html
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+```
+
+## CoreDNS
+
+First we will create a pod with ubuntu to do some DNS troubleshoting using dig
+
+```yaml
+#nettool.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ubuntu
+spec:
+  containers:
+  - name: ubuntu
+    image: ubuntu:latest
+    command: [ "sleep" ]
+    args: [ "infinity" ]
+``` 
+```sh
+#creating the pod
+kubectl create -f nettool.yaml
+#exec inside the pod
+kubectl exec -it ubuntu -- /bin/bash
+``` 
+
+**Inside the POD ubuntu**
+```sh
+##Inside Ubuntu##
+root@ubuntu:/# apt-get update ; apt-get install curl dnsutils -y
+root@ubuntu:/# dig
+
+; <<>> DiG 9.16.1-Ubuntu <<>>
+;; global options: +cmd
+;; Got answer:
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 3394
+;; flags: qr rd ra; QUERY: 1, ANSWER: 13, AUTHORITY: 0, ADDITIONAL: 1
+<output_omitted>
+;; Query time: 4 msec
+;; SERVER: 10.96.0.10#53(10.96.0.10)
+;; WHEN: Thu Aug 27 22:06:18 CDT 2024
+;; MSG SIZE rcvd: 431
+``
+``` sh
+#we cat resolv.conf
+#which will indicate nameservers and default domains to search
+#if no using a Fully Qualified Distinguished Name (FQDN)
+root@ubuntu:/# cat /etc/resolv.conf
+
+nameserver 10.96.0.10
+search default.svc.cluster.local svc.cluster.local cluster.local
+c.endless-station-188822.internal google.internal
+options ndots:5
+#Use the dig command to view more information about the DNS server. the -x argument to get the
+#FQDN using the IP we know. Notice the domain name, which uses ".kube-system.svc.cluster.local.",
+#to match the pod namespaces instead of default. Also note the name, kube-dns, is the name of a service
+#not a pod
+root@ubuntu:/# dig @10.96.0.10 -x 10.96.0.10
+
+...
+;; QUESTION SECTION:
+;10.0.96.10.in-addr.arpa. IN PTR
+;; ANSWER SECTION:
+10.0.96.10.in-addr.arpa.
+30 IN PTR kube-dns.kube-system.svc.cluster.local.↪→
+;; Query time: 0 msec
+;; SERVER: 10.96.0.10#53(10.96.0.10)
+;; WHEN: Thu Aug 27 23:39:14 CDT 2024
+;; MSG SIZE rcvd: 139
+```
+```sh
+# lets curl the service-lab we previously created using the FQDN:
+root@ubuntu:/# curl service-lab.accounting.svc.cluster.local.
+
+© Copyright The Linux Foundation 2025: DO NOT COPY OR DISTRIBUTE
+10.4. LABS 3
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+```
+```sh
+#If we curl directly the service name , we will get an error since we are looking inside default namespace
+curl service-lab
+
+curl: (6) Could not resolve host: service-lab
+#adding the namespace, it works!
+root@ubuntu:/# curl service-lab.accounting
+
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+<output_omitted>
+root@ubuntu:/# exit
+```
+**Outside the POD ubuntu**
+
+Lets now check the CoreDNS pod and svc:
+
+```sh
+#in the kube-system namespace the kube-dns server has the DNS ServerIP and exposed DNS default ports:
+kubectl -n kube-system get svc
+
+NAME TYPE CLUSTER-IP EXTERNAL-IP PORT(S) AGE
+kube-dns ClusterIP 10.96.0.10 <none> 53/UDP,53/TCP,9153/TCP 42h
+# lets check the svc in yaml and precisly the Selector:
+kubectl -n kube-system get svc kube-dns -o yaml
+```
+```yaml
+...
+  labels:
+    k8s-app: kube-dns
+    kubernetes.io/cluster-service: "true"
+    kubernetes.io/name: CoreDNS
+...
+  selector:
+    k8s-app: kube-dns
+    sessionAffinity: Non
+    type: ClusterIP
+...
+```
+```sh
+#all pods inside cluster that share the label k8s-app
+kubectl get pod -l k8s-app --all-namespaces
+
+NAMESPACE NAME READY STATUS RESTARTS AGE
+kube-system cilium-5tv9d 1/1 Running 0 136m
+kube-system cilium-gzdk6 1/1 Running 0 54m
+kube-system coredns-5d78c9869d-44qvq 1/1 Running 0 31m
+kube-system coredns-5d78c9869d-j6tqx 1/1 Running 0 31m
+kube-system kube-proxy-lpsmq 1/1 Running 0 35m
+kube-system kube-proxy-pvl8w 1/1 Running 0 34m
+#let check the coreDNS pod:
+kubectl -n kube-system get pod coredns-f9fd979d6-4dxpl -o yaml
+```
+```yaml
+...
+spec:
+containers:
+- args:
+- -conf
+- /etc/coredns/Corefile
+image: k8s.gcr.io/coredns:1.7.0
+...
+volumeMounts:
+- mountPath: /etc/coredns
+name: config-volume
+readOnly: true
+...
+volumes:
+- configMap:
+defaultMode: 420
+items:
+- key: Corefile
+path: Corefile
+name: coredns
+name: config-volume
+...
+```
+```sh
+#Viewing the config map inside kube-system 
+kubectl -n kube-system get configmaps
+#The coredns config
+kubectl -n kube-system get configmaps coredns -o yaml
+```
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+data:
+  Corefile: |
+    .:53 {                           # Listen on port 53 for all DNS queries (root zone)
+      errors                         # Log DNS errors
+      health {                       # Health check endpoint
+        lameduck 5s                  # Wait 5s before shutdown during termination
+      }
+      ready                          # Add /ready endpoint for Kubernetes readiness probes
+      kubernetes cluster.local in-addr.arpa ip6.arpa {  # Handle cluster DNS for services and pods
+        pods insecure                # Allow insecure pod DNS (no validation)
+        fallthrough in-addr.arpa ip6.arpa  # If query not found, pass to next handler
+        ttl 30  # Set DNS record Time To Live to 30 seconds
+      }
+      prometheus :9153               # Expose Prometheus metrics on port 9153
+      forward . /etc/resolv.conf {   # Forward unmatched queries to DNS servers in /etc/resolv.conf
+        max_concurrent 1000          # Allow up to 1000 concurrent DNS queries
+      }
+      cache 30                       # Cache DNS responses for 30 seconds
+      loop                           # Detect and prevent DNS forwarding loops
+      reload                         # Auto-reload CoreDNS if config (Corefile) changes
+      loadbalance                    # Randomize DNS response order (load balancing)
+    }
+```
+```sh
+#Lets backup this config and modify it
+kubectl -n kube-system get configmaps coredns -o yaml > coredns-backup.yaml
+kubectl -n kube-system edit configmaps coredns
+```
+```yaml
+apiVersion: v1
+kind: ConfigMap
+data:
+  Corefile: |
+    .:53 {
+      rewrite name regex (.*)\.test\.io {1}.default.svc.cluster.local #<--Add this line, explanation below
+.....
+    }
+```
+>if a client tries to resolve something like myapp.test.io,
+>➔ CoreDNS rewrites it internally to myapp.default.svc.cluster.local (the real Kubernetes service name).
+```sh
+#we delete all pod for reacreation and taking in the new config
+kubectl -n kube-system delete pod coredns-f9fd979d6-s4j98 coredns-f9fd979d6-xlpzf
+
+pod "coredns-f9fd979d6-s4j98" deleted
+pod "coredns-f9fd979d6-xlpzf" deleted
+#we create a deployement nginx
+kubectl create deployment nginx --image=nginx
+deployment.apps/nginx created
+#and expose it as ClusterIp + port 80
+kubectl expose deployment nginx --type=ClusterIP --port=80
+service/nginx expose
+kubectl get svc
+NAME TYPE CLUSTER-IP EXTERNAL-IP PORT(S) AGE
+kubernetes ClusterIP 10.96.0.1 <none> 443/TCP 3d15h
+nginx ClusterIP 10.104.248.141 <none> 80/TCP 7s
+```
+
+**Inside the POD ubuntu Again**
+```sh
+#execing
+kubectl exec -it ubuntu -- /bin/bash
+#inside ubuntu pod, not that the service name become part of the FQDN inside the default namespace
+root@ubuntu:/# dig -x 10.104.248.141
+
+...
+;; QUESTION SECTION:
+;141.248.104.10.in-addr.arpa. IN PTR
+;; ANSWER SECTION:
+141.248.104.10.in-addr.arpa.
+30 IN PTR nginx.default.svc.cluster.local.↪→
+...
+```
+```sh
+#Lets reverse lookup the and get the IP with the FQDN
+root@ubuntu:/# dig nginx.default.svc.cluster.local.
+
+....
+;; QUESTION SECTION:
+;nginx.default.svc.cluster.local. IN A
+;; ANSWER SECTION:
+nginx.default.svc.cluster.local. 30 IN A 10.104.248.141
+....
+```
+Lets test the rewrite rule
+```sh
+#Lets test the rewrite rule of test.io , it should resolve the IP
+root@ubuntu:/# dig nginx.test.io
+....
+;; QUESTION SECTION:
+;nginx.test.io. IN A
+;; ANSWER SECTION:
+nginx.default.svc.cluster.local. 30 IN A 10.104.248.141
+....
+#exiting the container ubuntu
+root@ubuntu:/# exit
+```
+**Outside the POD ubuntu Again**
+```sh
+Lets edit the config again
+#editing the config
+kubectl -n kube-system edit configmaps coredns
+#adding this part:
+```
+```yaml
+apiVersion: v1
+kind: ConfigMap
+data:
+  Corefile: |
+    .:53 {
+        rewrite stop { #<-- Edit this and following two lines
+          name regex (.*)\.test\.io {1}.default.svc.cluster.local
+          answer name (.*)\.default\.svc\.cluster\.local {1}.test.io
+    }
+    errors
+    health {
+    ....
+```
+### CoreDNS Rewrite Explanation
+
+- **`rewrite stop`**  
+  Tells CoreDNS to **stop processing further rewrite rules** if this one matches.
+- **`rewrite name regex (.*)\.test\.io {1}.default.svc.cluster.local`**  
+  resolve something like `myapp.test.io`,  
+  CoreDNS rewrites it internally to `myapp.default.svc.cluster.local` (the real Kubernetes service name).
+
+- **`answer name (.*)\.default\.svc\.cluster\.local {1}.test.io`**  
+  When returning DNS responses, CoreDNS **rewrites the answer back** from the internal service name (`.default.svc.cluster.local`)  
+  to the **friendly name** (`.test.io`).
+✅ Incoming request ➔ rewrite to service
+✅ DNS response ➔ rewrite back to friendly domain
+
+Applying modification:
+
+```sh
+#lets delete the pod for this to be taking in consideration
+kubectl -n kube-system delete pod coredns-f9fd979d6-fv9qn coredns-f9fd979d6-lnxn5
+
+pod "coredns-f9fd979d6-fv9qn" deleted
+pod "coredns-f9fd979d6-lnxn5" deleted
+```
+
+**Inside the POD ubuntu Again**
+```sh
+#execing inside ubuntu pod again
+kubectl exec -it ubuntu -- /bin/bash
+#inside the pod
+root@ubuntu:/# dig nginx.test.io
+
+;; QUESTION SECTION:
+;nginx.test.io. IN A
+;; ANSWER SECTION:
+nginx.test.io. 30 IN A 10.104.248.141
+```
+**Outside the POD ubuntu Again**
+Deleting the nettool for resource:
+```sh
+kubectl delete -f nettool.yaml
+```
+
+
+**Using Labels to manage resources**
+```sh
+#get pod with label system=secondary
+kubectl get pods -l system=secondary --all-namespaces
+
+NAMESPACE    NAME                         READY   STATUS    RESTARTS   AGE
+accounting   nginx-one-6b9c6fbb7b-5l5tz   1/1     Running   0          25h
+accounting   nginx-one-6b9c6fbb7b-hkvg5   1/1     Running   0          25h
+#delete pod with label system=secondary
+kubectl delete pods -l system=secondary --all-namespaces
+
+pod "nginx-one-6b9c6fbb7b-5l5tz" deleted
+pod "nginx-one-6b9c6fbb7b-hkvg5" deleted
+
+#new pod created since deployement controller/replicas controller still here
+kubectl get pod -n accounting
+NAME                         READY   STATUS    RESTARTS   AGE
+nginx-one-6b9c6fbb7b-76sdx   1/1     Running   0          16s
+nginx-one-6b9c6fbb7b-9httj   1/1     Running   0          16s
+
+#deleting deployement
+kubectl -n accounting delete deploy -l system=secondary
+
+#show node labels
+kubectl get nodes --show-labels
+NAME   STATUS   ROLES           AGE   VERSION   LABELS
+cp     Ready    control-plane   46d   v1.32.1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=cp,kubernetes.io/os=linux,node-role.kubernetes.io/control-plane=,node.kubernetes.io/exclude-from-external-load-balancers=
+dp     Ready    <none>          42d   v1.32.1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=dp,kubernetes.io/os=linux,system=secondOne
+
+#remove labels from dp
+kubectl label nodes dp system-
+node/dp unlabeled
+```
