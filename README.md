@@ -4810,6 +4810,7 @@ pod "web-server" deleted
 persistentvolumeclaim "pvc-one" deleted
 ```
 
+___
 
 # SERVICES
 
@@ -4959,6 +4960,7 @@ To verify DNS setup in your cluster, run a pod with networking tools and exec in
 
 Use tools like `nslookup`, `dig`, and `nc` for troubleshooting. In Kubernetes, check service labels, selectors, and review `/etc/resolv.conf` and any Network Policies or firewall rules.
 
+___
 
 # SERVICES TP
 
@@ -5601,3 +5603,396 @@ dp     Ready    <none>          42d   v1.32.1   beta.kubernetes.io/arch=amd64,be
 kubectl label nodes dp system-
 node/dp unlabeled
 ```
+
+___
+
+# Ingress
+
+Ingress Controllers and Rules let you efficiently expose multiple services outside a Kubernetes cluster by routing traffic based on host or path, centralizing access instead of using many LoadBalancer services. Unlike most controllers, Ingress Controllers run separately from kube-controller-manager and can be deployed with different configurations. Popular options include nginx, Traefik, and Envoy. Ingress Rules, created via kubectl, configure these controllers to route external traffic to internal ClusterIP services.
+
+An Ingress Controller is a daemon running in a Pod that monitors the `/ingresses` endpoint on the Kubernetes API server (under the `networking.k8s.io/v1` group) for new Ingress resources. When a new Ingress is created, the controller applies its configured rules to route inbound connections—typically HTTP traffic—to the appropriate Kubernetes Service.
+
+You can deploy multiple Ingress Controllers within a cluster. To direct traffic to a specific controller, use annotations on your Ingress resources. If no matching annotation is present, all controllers will attempt to handle the Ingress, which may lead to conflicts.
+
+![ingress1111.png](ingress1111.png)
+
+## Deploying the NGINX Ingress Controller
+
+Deploying an NGINX Ingress Controller is straightforward using the provided YAML files available in the [ingress-nginx/docs/deploy](https://github.com/kubernetes/ingress-nginx/tree/main/docs/deploy) GitHub repository.
+
+### Configuration Requirements
+
+To ensure proper deployment, consider the following configuration options:
+
+- **Easy integration with RBAC**
+- Uses the annotation:  
+    ```yaml
+    kubernetes.io/ingress.class: "nginx"
+    ```
+- For L7 traffic, configure the `proxy-real-ip-cidr` option to trust proxy IP ranges and correctly identify client IPs.
+- Bypasses `kube-proxy` *(traffic routing to pods is handled directly by the Ingress Controller)* to enable session affinity ensuring that Ensures that requests from the same client are consistently routed to the same pod
+- Does not use `conntrack` entries for iptables DNAT (***avoids** kernel connection tracking to improve performance and scalability in high-traffic environments, It is commonly used for NAT (Network Address Translation)*)
+- For TLS, the `host` field must be defined
+
+Customization is possible via a **ConfigMap**, **Annotations**, or, for advanced scenarios, a **custom template**.
+
+
+## Google Load Balancer Controller (GLBC)
+
+The **Google Load Balancer Controller (GLBC)** is a Kubernetes component that automates the management of Google Cloud Load Balancers. It works by interpreting Kubernetes Ingress resources and creating the necessary Google Cloud resources to route traffic to your application.
+
+### Key Features:
+- **Ingress Resource Management**: GLBC monitors Kubernetes Ingress objects and ensures that the corresponding Google Cloud Load Balancer is created and configured.
+- **Multi-Pool Path**: Traffic is routed through a series of objects, referred to as a "pool," to ensure connectivity. The path includes:
+  - **Global Forwarding Rule**: Directs traffic to the appropriate target.
+  - **Target HTTP Proxy**: Handles HTTP/HTTPS requests.
+  - **URL Map**: Maps incoming requests to backend services based on URL paths.
+  - **Backend Service**: Manages backend instances and health checks.
+  - **Instance Group**: A group of virtual machine instances that serve the traffic.
+
+#### Deployment Steps:
+1. **Create the GLBC Controller**: Deploy the GLBC Controller in your Kubernetes cluster.
+2. **Set Up Resources**: Create a ReplicationController with a single replica, three services for the application Pod, and an Ingress with two hostnames and three endpoints for each service.
+3. **Monitor Quotas**: Be aware that several objects are created for each service, and quotas are not evaluated prior to creation.
+
+#### Notes:
+- The GLBC Controller must be started first to ensure proper resource creation.
+- Each pool regularly checks the next hop to maintain connectivity.
+- TLS Ingress currently supports only port 443 and assumes TLS termination. It does not support SNI and uses the first certificate in the TLS secret.
+
+## Ingress API Resources
+
+Ingress objects are now part of the `networking.k8s.io` API group and are still considered beta. Below is an example of a typical Ingress resource you can apply to your Kubernetes cluster:
+
+
+```yaml
+apiVersion: networking.k8s.io/v1 # API version for the Ingress resource
+kind: Ingress              # Resource type
+metadata:
+  name: ghost              # Name of the Ingress object
+spec:
+  rules:
+  - host: ghost.192.168.99.100.nip.io # Hostname for routing
+      http:
+        paths:
+        - path: /               # URL path to match
+          pathType: ImplementationSpecific # Path matching type, *ImplementationSpecific* means that the interpretation of the path matching is determined by the specific Ingress controller being used not k8s
+          backend:
+            service:
+            name: ghost         # Backend service name
+            port:
+              number: 2368       # Backend service port
+```
+
+
+You can manage Ingress resources just like other Kubernetes objects (pods, deployments, services, etc.) using the following commands:
+
+```sh
+# List all ingress resources
+kubectl get ingress
+
+# Delete a specific ingress resource
+kubectl delete ingress <ingress_name>
+
+# Edit an existing ingress resource
+kubectl edit ingress <ingress_name>
+```
+
+## Deploying an Ingress Controller
+
+Deploy an Ingress Controller by applying its deployment YAML with:
+
+
+```bash
+kubectl create -f backend.yaml
+```
+
+This command will create a set of pods managed by a replication controller, along with some internal services:
+
+```bash
+kubectl get pods,rc,svc
+```
+output:
+```sh
+NAME                               READY   STATUS    RESTARTS   AGE
+po/default-http-backend-xvep8      1/1     Running   0          4m
+po/nginx-ingress-controller-fkshm  1/1     Running   0          4m
+
+NAME                     DESIRED   CURRENT   READY   AGE
+rc/default-http-backend  1         1         1       4m
+
+NAME                      CLUSTER-IP    EXTERNAL-IP   PORT(S)    AGE
+svc/default-http-backend  10.0.0.212    <none>        80/TCP     4m
+svc/kubernetes            10.0.0.1      <none>        443/TCP    77d
+```
+
+- The `default-http-backend` pod and service handle unmapped HTTP requests.
+- The `nginx-ingress-controller` pod runs the Ingress Controller.
+- The replication controller (`rc`) ensures the backend pod is always running.
+
+For more details, refer to the [official Kubernetes Ingress documentation](https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/).
+
+## Creating an Ingress Rule
+
+To quickly expose your application using Ingress, follow these steps:
+
+1. **Deploy Ghost and Expose with a ClusterIP Service:**
+
+    ```sh
+    kubectl run ghost --image=ghost
+    kubectl expose deployment ghost --port=2368
+    ```
+
+    This creates a Ghost deployment and exposes it internally within the cluster.
+
+2. **Create an Ingress Resource:**
+
+    ```yaml
+    apiVersion: networking.k8s.io/v1 # Specifies the API version for the Ingress resource.
+    kind: Ingress # Declares the resource type as Ingress.
+    metadata:
+      name: ghost-ingress # The name of the Ingress resource.
+    spec:
+      rules:
+        - host: ghost.192.168.99.100.nip.io # Defines the hostname for routing traffic.
+          http:
+            paths:
+              - path: / # Specifies the URL path to match incoming requests.
+                pathType: ImplementationSpecific # Allows the Ingress controller to determine how to interpret the path.
+                backend:
+                  service:
+                    name: ghost # The name of the service to route traffic to.
+                    port:
+                      number: 2368 # The port on the service to forward traffic to.
+    ```
+
+With the deployment, service, and Ingress in place, you should be able to access the Ghost application from outside the cluster using the specified host.
+
+To expose multiple services with one Ingress, define several rules in the same manifest. Each rule matches a host and routes traffic to the correct backend service.
+
+Example:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+    name: example-ingress
+spec:
+    rules:
+        # Rule 1: Routes traffic for ghost.192.168.99.100.nip.io to the 'external' service on port 80
+        - host: ghost.192.168.99.100.nip.io #specifies the domain name for which the rule applies.
+            http:
+                paths: #section defines how requests are routed to backend services.
+                - path: /
+                    pathType: Prefix
+                    backend: # specifies the target Kubernetes service and port.
+                        service:
+                            name: external
+                            port:
+                                number: 80
+        # Rule 2: Routes traffic for nginx.192.168.99.100.nip.io to the 'internal' service on port 8080
+        - host: nginx.192.168.99.100.nip.io #specifies the domain name for which the rule applies.
+            http:
+                paths: #section defines how requests are routed to backend services.
+                - path: /
+                    pathType: Prefix
+                    backend: # specifies the target Kubernetes service and port.
+                        service:
+                            name: internal
+                            port:
+                                number: 8080
+```
+
+## SideCar
+
+A **sidecar container** is a helper container that runs alongside the main container in the same Pod to provide extra features like logging, monitoring, proxying, or configuration.
+
+A **sidecar proxy** is a lightweight proxy running next to an application container, handling its network traffic to enable routing, security, and observability without changing the app code.
+
+
+![sidecar.png](sidecar.png)
+
+## Service Mesh
+
+A **Service Mesh** is a dedicated infrastructure layer that manages service-to-service communication in a microservices architecture. It provides features like traffic management, security, observability, and reliability without requiring changes to the application code.
+
+#### Key Features:
+- **Traffic Control**: Load balancing, shaping, and retries.
+- **Security**: Mutual TLS (mTLS) for secure service communication.
+- **Observability**: Monitoring, logging, and tracing.
+- **Resilience**: Circuit breaking and rate limiting.
+
+
+![Service Mesh Architecture](servicemesh2.png)
+
+## Intelligent Connected Proxies
+
+For advanced networking needs—such as service discovery, rate limiting, traffic management, security policies, and detailed observability—you may want to implement a **service mesh**. Service meshes provide a dedicated infrastructure layer for handling service-to-service communication in a secure, reliable, and observable way.
+
+A service mesh typically consists of **edge** and **sidecar (embedded)** proxies that intercept and manage all network traffic between microservices. These proxies operate under the direction of a **control plane**, which distributes configuration and enforces policies across the mesh.
+
+Popular service mesh solutions include:
+
+![istioarch.png](istioarch.png)
+
+### Envoy
+
+**Envoy** is a high-performance, open-source proxy designed for cloud-native applications. Its modular and extensible architecture makes it a popular choice as the data plane for many service meshes. Envoy supports advanced features such as dynamic service discovery, load balancing, TLS termination, observability, and traffic shadowing.
+
+### Istio
+
+**Istio** builds on Envoy by providing a robust control plane that manages traffic routing, security, telemetry, and policy enforcement. Istio is platform-agnostic and integrates seamlessly with Kubernetes, making it a flexible and feature-rich option for managing microservices at scale.
+
+### Linkerd
+
+**linkerd** is a lightweight, ultrafast service mesh focused on simplicity and performance. It is easy to deploy and operate, with a minimal resource footprint. linkerd provides essential service mesh features such as mTLS, traffic shifting, and observability, making it ideal for teams seeking a straightforward solution.
+
+## Ingress Limitations
+
+Kubernetes Ingress supports basic HTTP(S) routing, but lacks native features like TCP/UDP routing, gRPC, header-based routing, and canary deployments. Advanced needs rely on vendor-specific annotations, causing inconsistent and non-portable configurations.
+
+Access control is limited—there’s no built-in way to delegate granular responsibilities within an Ingress, increasing the risk of misconfiguration in multi-tenant setups.
+
+Because the Ingress spec is minimal and feature-frozen, controllers add features differently, leading to vendor lock-in. Kubernetes now focuses on the **Gateway API** for advanced traffic management, so Ingress may not meet future requirements.
+
+
+# Gateway API
+
+The Gateway API, part of the `gateway.networking.k8s.io/v1` group, introduces a modern, extensible approach to Kubernetes networking. It defines three stable resource kinds:
+
+- **GatewayClass**: Specifies a class of gateways with shared configuration, managed by a controller that implements the class.
+- **Gateway**: Represents a traffic-handling infrastructure instance, such as a cloud load balancer.
+- **HTTPRoute**: Describes HTTP-specific routing rules, mapping traffic from Gateway listeners to backend network endpoints (typically Kubernetes Services).
+
+## Key Advantages
+
+Gateway API was designed to overcome the limitations of the Ingress resource. It offers:
+
+- **Native support for L4/L7 protocols**
+- **Advanced routing**: Header and query-based routing, traffic splitting, mirroring, and more
+- **First-class features**: Capabilities that previously required custom annotations or workarounds in Ingress
+
+## Extensibility and Portability
+
+Gateway API is highly extensible via well-defined mechanisms, such as custom route filters, policies, and new route types, all while maintaining API consistency. This allows the API to evolve with new requirements and ensures portability across implementations (NGINX, HAProxy, Istio, etc.) with minimal configuration changes.
+
+## Separation of Concerns
+
+By separating Gateways from Routes, the API enables safe multi-tenant usage:
+
+- **Platform administrators** control entry points and security.
+- **Developers** manage routing rules independently.
+
+This separation reduces conflicts, aligns with enterprise team structures, and effectively provides a built-in RBAC model for networking.
+
+## Security Improvements
+
+Gateway API codifies configuration previously handled via annotations, providing a vendor-neutral language for ingress and traffic policy. It introduces security enhancements such as:
+
+- **Cross-namespace permission checks** (Route binding and ReferenceGrants)
+- **Consistent policy enforcement**
+
+These features give administrators confidence to delegate route control without compromising security.
+## Gateway API vs Ingress API
+
+| Aspect        | Ingress API                              | Gateway API                                                      |
+|---------------|------------------------------------------|------------------------------------------------------------------|
+| **Purpose**   | Basic HTTP routing into Kubernetes       | Advanced, flexible traffic routing                               |
+| **Maturity**  | Older, simpler                           | Newer, designed to fix Ingress limits                            |
+| **Flexibility** | Limited (only HTTP/S)                  | Supports HTTP, TCP, UDP, and mTLS                                |
+| **Extensibility** | Hard to extend                       | Built to be extendable (CRDs like GatewayClass, HTTPRoute)       |
+| **Use Case**  | Simple websites, small apps              | Large platforms, multi-tenant apps, complex traffic needs        |
+
+> ** Super short summary:**  
+> Ingress = basic router (HTTP/HTTPS only).  
+> Gateway API = advanced, modular, and future-proof traffic control (for big/complex setups).
+
+![diffapigateway-ingress.png](diffapigateway-ingress.png)
+
+## GatewayClass
+
+A **GatewayClass** is a fundamental resource in the Kubernetes Gateway API, providing a standardized way to define and manage gateways across a cluster. Unlike the traditional Ingress resource, the Gateway API introduces a modular and extensible approach to network traffic management, with GatewayClass serving as the foundation for this design.
+
+GatewayClass is a **cluster-scoped** resource that acts as a template or blueprint for a category of gateways. It defines shared properties and behaviors that any Gateway referencing it will inherit. Typically, cluster administrators or infrastructure teams create and maintain GatewayClass resources to enforce organizational standards and best practices for gateway deployments.
+
+The most important field in a GatewayClass is `spec.controllerName`. This field specifies the controller (for example, an NGINX-based controller, Istio, etc) responsible for managing the lifecycle and configuration of all Gateway resources that reference this GatewayClass.
+
+**Example:**
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+    name: example-class
+spec:
+    controllerName: example.com/gateway-controller
+```
+
+> **Note:** You can find a list of supported Gateway controllers in the [Kubernetes Gateway API documentation](https://gateway-api.sigs.k8s.io/implementations/).
+
+## Gateway in Kubernetes
+
+A **Gateway** in Kubernetes is a resource that manages inbound and outbound network traffic for services within a cluster. It defines how external clients connect to internal services by specifying protocol, port, and security settings. Gateways are part of the Gateway API, which provides a more flexible and expressive way to configure networking compared to traditional Ingress resources.
+
+**Key Features:**
+- **Separation of Concerns:** Gateways reference a `GatewayClass`, allowing infrastructure teams to manage networking implementations while application teams define routing.
+- **Protocol Support:** Supports HTTP, HTTPS, TCP, and more, enabling advanced routing and security features such as TLS termination.
+- **Cross-Namespace Routing:** Enables secure and controlled routing across namespaces.
+- **Extensibility:** Integrates with service meshes and custom controllers for advanced traffic management.
+
+**Example Gateway Resource:**
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+    name: example-gateway
+spec:
+    gatewayClassName: example-class
+    listeners:
+        - name: http
+            protocol: HTTP
+            port: 80
+            allowedRoutes:
+                namespaces:
+                    from: All
+```
+
+## HTTPRoute
+
+An **HTTPRoute** is a Kubernetes resource that controls how HTTP traffic is routed within a cluster, allowing flexible rules based on hostnames, paths, headers, and more.
+
+By linking HTTPRoutes to one or more Gateways, Kubernetes separates infrastructure management from application-level routing. This separation enhances flexibility, scalability, and maintainability across your applications.
+
+### Example HTTPRoute Manifest
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+    name: example-httproute
+spec:
+    parentRefs:
+        - name: example-gateway
+    hostnames:
+        - "www.example.com"
+    rules:
+        - matches:
+                - path:
+                        type: PathPrefix
+                        value: /login
+            backendRefs:
+                - name: example-svc
+                    port: 8080
+```
+
+## who manages what
+
+| Resource      | Managed by      | Why                                                                                   |
+|---------------|----------------|---------------------------------------------------------------------------------------|
+| GatewayClass  | Administrators  | Defines the infrastructure (e.g., what controller is used: Envoy, NGINX, etc.). It’s cluster-wide. |
+| Gateway       | Administrators  | Allocates real network resources (IPs, ports, certificates). It’s like "setting up the router."    |
+| HTTPRoute (or TCPRoute, etc.) | Developers      | Defines application-specific routing (paths, hosts, services). Focused on app logic, not infra. |
+
+![gateway-api-resources.png](gateway-api-resources.png)
+
+![apigateawayarch.webp](apigateawayarch.webp)
