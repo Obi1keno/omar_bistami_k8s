@@ -4830,6 +4830,13 @@ By default, Kubernetes uses a rolling deployment strategy: new Pods with updated
 
 However, if different application versions are incompatible—meaning clients may have issues communicating with multiple versions—you should use more specific labels, such as including a version number.
 
+| Access Method                 | Source of Access         | Public? | Compatible Service Type(s)         | Requires Cloud LB? | Use Case                               |
+|------------------------------|--------------------------|---------|-------------------------------------|---------------------|----------------------------------------|
+| `CLUSTER-IP`                 | Inside cluster only       | ❌      | `ClusterIP` (default)               | ❌                  | Internal-only communication            |
+| `EXTERNAL-IP`                | External (internet)       | ✅      | `LoadBalancer`                      | ✅                  | Public access via cloud LB             |
+| `NODE-INTERNAL-IP + NodePort`| Internal network (VPC)    | ❌      | `NodePort`, `LoadBalancer`         | ❌                  | Private/bastion access                 |
+| `NODE-EXTERNAL-IP + NodePort`| Public access via Node    | ✅      | `NodePort`, `LoadBalancer`         | ❌                  | Manual public access, dev/test setup   |
+
 **Basic Steps to access a new service**
 
 ```sh
@@ -4974,6 +4981,13 @@ ___
 - **NodePort**: Exposes the service on each node’s IP at a static port. A ClusterIP is also automatically created.
 - **LoadBalancer**: Exposes the service externally using a cloud provider’s load balancer. Both NodePort and ClusterIP are automatically created.
 - **ExternalName**: Maps the service to the value of `externalName` using a CNAME DNS record.
+
+| Access Method                 | Source of Access         | Public? | Compatible Service Type(s)         | Requires Cloud LB? | Use Case                               |
+|------------------------------|--------------------------|---------|-------------------------------------|---------------------|----------------------------------------|
+| `CLUSTER-IP`                 | Inside cluster only       | ❌      | `ClusterIP` (default)               | ❌                  | Internal-only communication            |
+| `EXTERNAL-IP`                | External (internet)       | ✅      | `LoadBalancer`                      | ✅                  | Public access via cloud LB             |
+| `NODE-INTERNAL-IP + NodePort`| Internal network (VPC)    | ❌      | `NodePort`, `LoadBalancer`         | ❌                  | Private/bastion access                 |
+| `NODE-EXTERNAL-IP + NodePort`| Public access via Node    | ✅      | `NodePort`, `LoadBalancer`         | ❌                  | Manual public access, dev/test setup   |
 
 Services enable decoupling, allowing any agent or object to be replaced without interrupting client access to back-end applications.
 
@@ -5996,3 +6010,1251 @@ spec:
 ![gateway-api-resources.png](gateway-api-resources.png)
 
 ![apigateawayarch.webp](apigateawayarch.webp)
+
+# **INGRESS GATEWAY SERVICEMESH TP**
+## **SERVICE MESH**
+
+If you need to expose many services or low-numbered ports outside your cluster, use an **Ingress controller** (e.g., NGINX, GCE). For advanced features and metrics, consider a **service mesh** like Istio, Linkerd, or Contour.
+
+- **Ingress controllers:** Manage external access to services.
+- **Service meshes:** Add traffic management, security, and observability.
+
+Lets us install **linkerd**
+```sh
+#Downloading the CLI
+curl -sL run.linkerd.io/install-edge | sh
+
+Downloading linkerd2-cli-edge-25.4.4-linux-amd64...
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+100 74.9M  100 74.9M    0     0  79.9M      0 --:--:-- --:--:-- --:--:-- 79.9M
+Download complete!
+
+Validating checksum...
+Checksum valid.
+
+Linkerd edge-25.4.4 was successfully installed 🎉
+
+
+Add the linkerd CLI to your path with:
+
+  export PATH=$PATH:/root/.linkerd2/bin
+
+Now run:
+
+  # install the GatewayAPI CRDs
+  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+
+  linkerd check --pre                         # validate that Linkerd can be installed
+  linkerd install --crds | kubectl apply -f - # install the Linkerd CRDs
+  linkerd install | kubectl apply -f -        # install the control plane into the 'linkerd' namespace
+  linkerd check                               # validate everything worked!
+
+You can also obtain observability features by installing the viz extension:
+
+  linkerd viz install | kubectl apply -f -  # install the viz extension into the 'linkerd-viz' namespace
+  linkerd viz check                         # validate the extension works!
+  linkerd viz dashboard                     # launch the dashboard
+
+Looking for more? Visit https://linkerd.io/2/tasks
+```
+```sh
+#Setting env var for bin and doing a first check
+export PATH=$PATH:/root/.linkerd2/bin
+#into bash also
+echo "export PATH=$PATH:/root/.linkerd2/bin" >> $HOME/.bashrc
+#first check
+linkerd check --pre
+kubernetes-api
+--------------
+√ can initialize the client
+√ can query the Kubernetes API
+
+kubernetes-version
+------------------
+√ is running the minimum Kubernetes API version
+
+pre-kubernetes-setup
+--------------------
+√ control plane namespace does not already exist
+√ can create non-namespaced resources
+√ can create ServiceAccounts
+√ can create Services
+√ can create Deployments
+√ can create CronJobs
+√ can create ConfigMaps
+√ can create Secrets
+√ can read Secrets
+√ can read extension-apiserver-authentication configmap
+√ no clock skew detected
+
+linkerd-version
+---------------
+√ can determine the latest version
+√ cli is up-to-date
+
+Status check results are √
+```
+
+> **The Gateway API is not part of the Kubernetes core (like Ingress), but rather a separately maintained SIG-Network project that can be installed on any Kubernetes version starting from v1.19 via CRDs.**
+>> Lets install it
+
+```sh
+#first we check if we have the crds for gateway api
+kubectl get crds | grep gateway.networking.k8s.io
+#we get the GATEWAY API crds from k8s git and apply them
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io created
+```
+
+Lets now install linkerd crds
+```sh
+#installing linkerd crds
+linkerd install --crds | kubectl apply -f -
+Rendering Linkerd CRDs...
+Next, run `linkerd install | kubectl apply -f -` to install the control plane.
+
+customresourcedefinition.apiextensions.k8s.io/authorizationpolicies.policy.linkerd.io created
+customresourcedefinition.apiextensions.k8s.io/egressnetworks.policy.linkerd.io created
+customresourcedefinition.apiextensions.k8s.io/httplocalratelimitpolicies.policy.linkerd.io created
+customresourcedefinition.apiextensions.k8s.io/httproutes.policy.linkerd.io created
+customresourcedefinition.apiextensions.k8s.io/meshtlsauthentications.policy.linkerd.io created
+customresourcedefinition.apiextensions.k8s.io/networkauthentications.policy.linkerd.io created
+customresourcedefinition.apiextensions.k8s.io/serverauthorizations.policy.linkerd.io created
+customresourcedefinition.apiextensions.k8s.io/servers.policy.linkerd.io created
+customresourcedefinition.apiextensions.k8s.io/serviceprofiles.linkerd.io created
+customresourcedefinition.apiextensions.k8s.io/externalworkloads.workload.linkerd.io created
+```
+
+Lets now install linkerd
+```sh
+#install linkerd
+linkerd install | kubectl apply -f -
+namespace/linkerd created
+clusterrole.rbac.authorization.k8s.io/linkerd-linkerd-identity created
+clusterrolebinding.rbac.authorization.k8s.io/linkerd-linkerd-identity created
+serviceaccount/linkerd-identity created
+clusterrole.rbac.authorization.k8s.io/linkerd-linkerd-destination created
+clusterrolebinding.rbac.authorization.k8s.io/linkerd-linkerd-destination created
+serviceaccount/linkerd-destination created
+secret/linkerd-sp-validator-k8s-tls created
+validatingwebhookconfiguration.admissionregistration.k8s.io/linkerd-sp-validator-webhook-config created
+secret/linkerd-policy-validator-k8s-tls created
+validatingwebhookconfiguration.admissionregistration.k8s.io/linkerd-policy-validator-webhook-config created
+clusterrole.rbac.authorization.k8s.io/linkerd-policy created
+clusterrolebinding.rbac.authorization.k8s.io/linkerd-destination-policy created
+role.rbac.authorization.k8s.io/remote-discovery created
+rolebinding.rbac.authorization.k8s.io/linkerd-destination-remote-discovery created
+role.rbac.authorization.k8s.io/linkerd-heartbeat created
+rolebinding.rbac.authorization.k8s.io/linkerd-heartbeat created
+clusterrole.rbac.authorization.k8s.io/linkerd-heartbeat created
+clusterrolebinding.rbac.authorization.k8s.io/linkerd-heartbeat created
+serviceaccount/linkerd-heartbeat created
+clusterrole.rbac.authorization.k8s.io/linkerd-linkerd-proxy-injector created
+clusterrolebinding.rbac.authorization.k8s.io/linkerd-linkerd-proxy-injector created
+serviceaccount/linkerd-proxy-injector created
+secret/linkerd-proxy-injector-k8s-tls created
+mutatingwebhookconfiguration.admissionregistration.k8s.io/linkerd-proxy-injector-webhook-config created
+configmap/linkerd-config created
+role.rbac.authorization.k8s.io/ext-namespace-metadata-linkerd-config created
+secret/linkerd-identity-issuer created
+configmap/linkerd-identity-trust-roots created
+service/linkerd-identity created
+service/linkerd-identity-headless created
+deployment.apps/linkerd-identity created
+service/linkerd-dst created
+service/linkerd-dst-headless created
+service/linkerd-sp-validator created
+service/linkerd-policy created
+service/linkerd-policy-validator created
+deployment.apps/linkerd-destination created
+cronjob.batch/linkerd-heartbeat created
+deployment.apps/linkerd-proxy-injector created
+service/linkerd-proxy-injector created
+secret/linkerd-config-overrides created
+```
+
+Lets do a check post install
+```sh
+linkerd check
+kubernetes-api
+--------------
+√ can initialize the client
+√ can query the Kubernetes API
+
+kubernetes-version
+------------------
+√ is running the minimum Kubernetes API version
+
+linkerd-existence
+-----------------
+√ 'linkerd-config' config map exists
+√ heartbeat ServiceAccount exist
+√ control plane replica sets are ready
+√ no unschedulable pods
+√ control plane pods are ready
+√ cluster networks contains all node podCIDRs
+√ cluster networks contains all pods
+√ cluster networks contains all services
+
+linkerd-config
+--------------
+√ control plane Namespace exists
+√ control plane ClusterRoles exist
+√ control plane ClusterRoleBindings exist
+√ control plane ServiceAccounts exist
+√ control plane CustomResourceDefinitions exist
+√ control plane MutatingWebhookConfigurations exist
+√ control plane ValidatingWebhookConfigurations exist
+√ proxy-init container runs as root user if docker container runtime is used
+
+linkerd-identity
+----------------
+√ certificate config is valid
+√ trust anchors are using supported crypto algorithm
+√ trust anchors are within their validity period
+√ trust anchors are valid for at least 60 days
+√ issuer cert is using supported crypto algorithm
+√ issuer cert is within its validity period
+√ issuer cert is valid for at least 60 days
+√ issuer cert is issued by the trust anchor
+
+linkerd-webhooks-and-apisvc-tls
+-------------------------------
+√ proxy-injector webhook has valid cert
+√ proxy-injector cert is valid for at least 60 days
+√ sp-validator webhook has valid cert
+√ sp-validator cert is valid for at least 60 days
+√ policy-validator webhook has valid cert
+√ policy-validator cert is valid for at least 60 days
+
+linkerd-version
+---------------
+√ can determine the latest version
+√ cli is up-to-date
+
+control-plane-version
+---------------------
+√ can retrieve the control plane version
+√ control plane is up-to-date
+√ control plane and cli versions match
+
+linkerd-control-plane-proxy
+---------------------------
+√ control plane proxies are healthy
+√ control plane proxies are up-to-date
+√ control plane proxies and cli versions match
+
+linkerd-extension-checks
+------------------------
+√ namespace configuration for extensions
+
+Status check results are √
+```
+
+Lets now install linkerd viz (Grafana/Prometheus)
+```sh
+#Install linkerd viz
+linkerd viz install | kubectl apply -f -
+namespace/linkerd-viz created
+clusterrole.rbac.authorization.k8s.io/linkerd-linkerd-viz-metrics-api created
+clusterrolebinding.rbac.authorization.k8s.io/linkerd-linkerd-viz-metrics-api created
+serviceaccount/metrics-api created
+clusterrole.rbac.authorization.k8s.io/linkerd-linkerd-viz-prometheus created
+clusterrolebinding.rbac.authorization.k8s.io/linkerd-linkerd-viz-prometheus created
+serviceaccount/prometheus created
+clusterrole.rbac.authorization.k8s.io/linkerd-linkerd-viz-tap created
+clusterrole.rbac.authorization.k8s.io/linkerd-linkerd-viz-tap-admin created
+clusterrolebinding.rbac.authorization.k8s.io/linkerd-linkerd-viz-tap created
+clusterrolebinding.rbac.authorization.k8s.io/linkerd-linkerd-viz-tap-auth-delegator created
+serviceaccount/tap created
+rolebinding.rbac.authorization.k8s.io/linkerd-linkerd-viz-tap-auth-reader created
+secret/tap-k8s-tls created
+apiservice.apiregistration.k8s.io/v1alpha1.tap.linkerd.io created
+role.rbac.authorization.k8s.io/web created
+rolebinding.rbac.authorization.k8s.io/web created
+clusterrole.rbac.authorization.k8s.io/linkerd-linkerd-viz-web-check created
+clusterrolebinding.rbac.authorization.k8s.io/linkerd-linkerd-viz-web-check created
+clusterrolebinding.rbac.authorization.k8s.io/linkerd-linkerd-viz-web-admin created
+clusterrole.rbac.authorization.k8s.io/linkerd-linkerd-viz-web-api created
+clusterrolebinding.rbac.authorization.k8s.io/linkerd-linkerd-viz-web-api created
+serviceaccount/web created
+service/metrics-api created
+deployment.apps/metrics-api created
+server.policy.linkerd.io/metrics-api created
+authorizationpolicy.policy.linkerd.io/metrics-api created
+meshtlsauthentication.policy.linkerd.io/metrics-api-web created
+networkauthentication.policy.linkerd.io/kubelet created
+configmap/prometheus-config created
+service/prometheus created
+deployment.apps/prometheus created
+server.policy.linkerd.io/prometheus-admin created
+authorizationpolicy.policy.linkerd.io/prometheus-admin created
+service/tap created
+deployment.apps/tap created
+server.policy.linkerd.io/tap-api created
+authorizationpolicy.policy.linkerd.io/tap created
+clusterrole.rbac.authorization.k8s.io/linkerd-tap-injector created
+clusterrolebinding.rbac.authorization.k8s.io/linkerd-tap-injector created
+serviceaccount/tap-injector created
+secret/tap-injector-k8s-tls created
+mutatingwebhookconfiguration.admissionregistration.k8s.io/linkerd-tap-injector-webhook-config created
+service/tap-injector created
+deployment.apps/tap-injector created
+server.policy.linkerd.io/tap-injector-webhook created
+authorizationpolicy.policy.linkerd.io/tap-injector created
+networkauthentication.policy.linkerd.io/kube-api-server created
+service/web created
+deployment.apps/web created
+serviceprofile.linkerd.io/metrics-api.linkerd-viz.svc.cluster.local created
+serviceprofile.linkerd.io/prometheus.linkerd-viz.svc.cluster.local created
+#checking
+linkerd viz check
+linkerd-viz
+-----------
+√ linkerd-viz Namespace exists
+√ can initialize the client
+√ linkerd-viz ClusterRoles exist
+√ linkerd-viz ClusterRoleBindings exist
+√ tap API server has valid cert
+√ tap API server cert is valid for at least 60 days
+√ tap API service is running
+√ linkerd-viz pods are injected
+√ viz extension pods are running
+√ viz extension proxies are healthy
+√ viz extension proxies are up-to-date
+√ viz extension proxies and cli versions match
+√ prometheus is installed and configured correctly
+√ viz extension self-check
+
+Status check results are √
+```
+
+Lets run linkerd viz in background
+```sh
+#Runing linkerd viz in background
+linkerd viz dashboard &
+[1] 1256334
+#output
+Linkerd dashboard available at:
+http://localhost:50750
+Grafana dashboard available at:
+http://localhost:50750/grafana
+Opening Linkerd dashboard in the default browser
+Failed to open Linkerd dashboard automatically
+Visit http://localhost:50750 in your browser to view the dashboard
+```
+
+The GUI is only available on localhost by default. To allow external access, edit the service and deployment, and clear the value for `-enforced-host` (around line 59).
+```sh
+#before any change , backup
+kubectl -n linkerd-viz get deployments.apps web -o yaml > linkerd-viz-deploy.yaml
+#lets edit now and comment the enforced-host to localhost
+kubectl -n linkerd-viz edit deployments.apps web
+```
+```yaml
+...
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - args:
+        - -linkerd-metrics-api-addr=metrics-api.linkerd-viz.svc.cluster.local:8085
+        - -cluster-domain=cluster.local
+        - -controller-namespace=linkerd
+        - -log-level=info
+        - -log-format=plain
+        - -enable-pprof=false
+        - -enforced-host=^(localhost......  #<--- comment this line
+...
+```
+
+Now we need to change the service from ClusterIp to NodePort
+```sh
+#backupfirst
+kubectl -n linkerd-viz get svc web -o yaml > linkerd-viz-svc.yaml
+#lets edit the svc
+kubectl -n linkerd-viz edit svc web
+#lets change the type of the service and add a nodeport
+```
+```yaml
+spec:
+  clusterIP: 10.105.225.142 #**The main internal IP used by other pods to access the service.**
+  clusterIPs: #**A list of internal IPs (used for dual-stack IPv4/IPv6 support).** added in new versions
+  - 10.105.225.142
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: http
+    nodePort: 31500 # <--- added node port we choose our self
+    port: 8084
+    protocol: TCP
+    targetPort: 8084
+  - name: admin-http
+    nodePort: 31787 # <--- We let the k8s choose randomly this
+    port: 9994
+    protocol: TCP
+    targetPort: 9994
+  selector:
+    component: web
+    linkerd.io/extension: viz
+  sessionAffinity: None
+  type: NodePort #<--changed to NodePort
+status:
+  loadBalancer: {}
+```
+
+To be sure deployement modifications have been taking in
+```sh
+#let restart the deploy
+kubectl -n linkerd-viz rollout restart deployment web
+deployment.apps/web restarted
+# kubectl -n linkerd-viz get pod
+NAME                           READY   STATUS    RESTARTS      AGE
+metrics-api-86bff98cbc-mhqrw   2/2     Running   0             47m
+prometheus-7ff979ffd9-6hnvj    2/2     Running   0             47m
+tap-5b55c9bb76-6c8r5           2/2     Running   1 (46m ago)   47m
+tap-injector-f67944698-kvfhr   2/2     Running   0             47m
+web-755b796446-jvpjn           2/2     Running   0             6s
+```
+
+Now lets get our ip and try to access it
+```
+curl ifconfig.io
+34.155.199.133
+```
+
+using : http://34.155.199.133:31500/namespaces
+We can access :
+![linkerd.png](linkerd.png)
+
+To enable Linkerd to monitor a Kubernetes object, you need to add a specific annotation. The `linkerd inject` command automates this process. You can generate the YAML manifest, pipe it through `linkerd inject`, and then apply it with `kubectl`. You might see an error indicating the object was created, but this is expected and the process will still succeed, lets do this by recreating the `nginx-one` deployment.
+```sh
+#First we check if our namespace is still here
+kubectl get ns accounting
+NAME         STATUS   AGE
+accounting   Active   3d20h
+#We then relabel the node
+kubectl label node dp system=secondOne
+node/dp labeled
+#valide the correct container port 80 not 8080
+vim nginx-one.yaml
+```
+```yaml
+       ports:
+        - containerPort: 80
+          protocol: TCP
+```
+```sh
+#we apply
+kubectl -n accounting apply -f nginx-one.yaml
+deployment.apps/nginx-one created
+```
+
+Now we inject the annotation using `linkerd inject` command
+```sh
+#injecting linkerd through pipe
+kubectl -n accounting get deployments.apps nginx-one -o yaml | linkerd inject - | kubectl apply -f -
+
+deployment "nginx-one" injected
+deployment.apps/nginx-one configured
+```
+
+Now if we check the ui, we will the see that accounting and his pods are meshed:
+
+![linkerd2.png](linkerd2.png)
+![linkerd3.png](linkerd3.png)
+
+Lets generate some traffic and watch the RPS (request per second)
+```sh
+#first get the ip from svc
+kubectl -n accounting get svc
+NAME          TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
+service-lab   NodePort   10.110.157.41   <none>        80:30131/TCP   3d14h
+```
+
+Before:
+![linkerd4.png](linkerd4.png)
+
+```sh
+#then run some curl on it
+for i in {1..150}; do curl -s http://10.110.157.41 > /dev/null; done
+```
+After:
+![linkerd5.png](linkerd5.png)
+
+Lets scale and get traffic for all pods:
+```sh
+#scaling to 5 replicas
+kubectl -n accounting scale deployment nginx-one --replicas=5
+deployment.apps/nginx-one scaled
+#lets curl
+for i in {1..300}; do curl -s http://10.110.157.41 > /dev/null; done
+```
+
+![linkerd6.png](linkerd6.png)
+![linkerd7.png](linkerd7.png)
+
+
+## **Ingres Controller TP**
+
+First we create 2 deploy and open them as follow:
+```sh
+#create first deploy and expose port 80
+kubectl create deployment web-one --image=nginx --port=80
+deployment.apps/web-one created
+#create second deploy and open also port 80
+kubectl create deployment web-two --image=nginx --port=80
+deployment.apps/web-two created
+#then we expose svc as clusterIP and keep 80==>80
+kubectl expose deployment web-one --port=80 --target-port=80 --type=ClusterIP
+service/web-one exposed
+kubectl expose deployment web-two --port=80 --target-port=80 --type=ClusterIP
+service/web-two exposed
+#we get to check
+kubectl get svc,deploy
+NAME                 TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+service/web-one      ClusterIP   10.107.243.59   <none>        80/TCP    13s
+service/web-two      ClusterIP   10.99.245.196   <none>        80/TCP    7s
+
+NAME                                              READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/web-one                           1/1     1            1           78s
+deployment.apps/web-two                           1/1     1            1           73s
+#we curl
+curl 10.107.243.59
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+curl 10.107.243.59:80
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+ curl 10.99.245.196
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+```
+
+Now we use HELM to **install an ingress controller** we will install NGINX the most famous one
+```sh
+#first a search
+helm search hub ingress | grep -i nginx
+...
+https://artifacthub.io/packages/helm/ingress-ng...      4.12.1          1.12.1                                  Ingress controller for Kubernetes using NGINX a...
+https://artifacthub.io/packages/helm/ingress-ng...      4.1.0           1.2.0                                   Ingress controller for Kubernetes using NGINX a...
+https://artifacthub.io/packages/helm/nginx-ingr...      4.0.13          1.1.0                                   Ingress controller for Kubernetes using NGINX a...
+https://artifacthub.io/packages/helm/nginx-ingr...      2.1.0           5.0.0                                   NGINX Ingress Controller
+https://artifacthub.io/packages/helm/wenerme/in...      4.12.1          1.12.1                                  Ingress controller for Kubernetes using NGINX a...
+https://artifacthub.io/packages/helm/api/ingres...      3.29.1          0.45.0                                  Ingress controller for Kubernetes using NGINX a...
+https://artifacthub.io/packages/helm/kubeblocks...      4.12.1          1.12.1                                  Ingress controller for Kubernetes using NGINX a...
+https://artifacthub.io/packages/helm/softonic/i...      4.9.1           1.9.6                                   Ingress controller for Kubernetes using NGINX a...
+https://artifacthub.io/packages/helm/kubebb/ing...      4.7.0           1.8.0                                   Ingress controller for Kubernetes using NGINX a...
+https://artifacthub.io/packages/helm/mxytest/in...      4.12.1          1.12.1                                  Ingress controller for Kubernetes using NGINX a...
+https://artifacthub.io/packages/helm/gpg-dev/in...      4.9.0           1.9.5                                   Ingress controller for Kubernetes using NGINX a...
+...
+#we add the repo
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+"ingress-nginx" has been added to your repositories
+#we update repo to take in consideraton the new repo added
+helm repo update
+
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "nfs-subdir-external-provisioner" chart repository
+...Successfully got an update from the "ealenn" chart repository
+...Successfully got an update from the "ingress-nginx" chart repository
+...Successfully got an update from the "cilium" chart repository
+...Successfully got an update from the "bitnami" chart repository
+Update Complete. ⎈Happy Helming!⎈
+#we fetch the repo locally
+helm fetch ingress-nginx/ingress-nginx --untar
+#we modify the value file to modifiy the installation mode from Deploy to Daemonset
+vim ingress-nginx/value.yaml
+```
+```yaml
+ kind: DaemonSet #changed from Deployement
+  # -- Annotations to be added to the controller Deployment or DaemonSet
+```
+```sh
+#installing
+cd ingress-nginx
+helm install myingress .
+NAME: myingress
+LAST DEPLOYED: Tue Apr 29 21:14:42 2025
+NAMESPACE: default
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+The ingress-nginx controller has been installed.
+It may take a few minutes for the load balancer IP to be available.
+You can watch the status by running 'kubectl get service --namespace default myingress-ingress-nginx-controller --output wide --watch'
+
+An example Ingress that makes use of the controller:
+```
+```yaml
+  apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    name: example
+    namespace: foo
+  spec:
+    ingressClassName: nginx
+    rules:
+      - host: www.example.com
+        http:
+          paths:
+            - pathType: Prefix
+              backend:
+                service:
+                  name: exampleService
+                  port:
+                    number: 80
+              path: /
+    # This section is only required if TLS is to be enabled for the Ingress
+    tls:
+      - hosts:
+        - www.example.com
+        secretName: example-tls
+```
+```sh
+If TLS is enabled for the Ingress, a Secret containing the certificate and key must also be provided:
+```
+```yaml
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: example-tls
+    namespace: foo
+  data:
+    tls.crt: <base64 encoded cert>
+    tls.key: <base64 encoded key>
+  type: kubernetes.io/tls
+```
+```sh
+#check if nginx service is up and runing
+kubectl get service --namespace default myingress-ingress-nginx-controller --output wide --watch
+NAME                                 TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)                      AGE   SELECTOR
+myingress-ingress-nginx-controller   LoadBalancer   10.99.124.35   <pending>     80:32720/TCP,443:31053/TCP   39s   app.kubernetes.io/component=controller,app.kubernetes.io/instance=myingress,app.kubernetes.io/name=ingress-nginx
+#check if nginx pods runing
+kubectl get pods --all-namespaces -o wide | grep nginx
+default       myingress-ingress-nginx-controller-mn52x          1/1     Running   0             79s     192.168.1.138   dp     <none>           <none>
+default       myingress-ingress-nginx-controller-zm7qz          1/1     Running   0             80s     192.168.0.77    cp     <none>           <none>
+```
+We then create the following ingress
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-test
+  namespace: default
+  annotations:
+    # By default, NGINX load balances across pod IPs.
+    # With this annotation, traffic is sent to the service for Kubernetes to handle load balancing.
+    nginx.ingress.kubernetes.io/service-upstream: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: www.external.com
+      http:
+        paths:
+        - path: /
+          # pathType: ImplementationSpecific lets NGINX decide path matching.
+          # e.g., /api may match /api/, /api/v1, etc.
+          pathType: ImplementationSpecific
+          backend:
+            service:
+              name: web-one
+              port:
+                number: 80
+```
+```sh
+#dry run to check syntaxe
+kubectl apply --dry-run=client --validate=true -f ingress.yaml
+ingress.networking.k8s.io/ingress-test created (dry run)
+#create
+kubectl apply -f ingress.yaml
+ingress.networking.k8s.io/ingress-test created
+#get
+ kubectl get ingress
+NAME           CLASS   HOSTS              ADDRESS   PORTS   AGE
+ingress-test   nginx   www.external.com             80      25s
+```
+
+Lets check if our nginx is working
+```sh
+#we get the ingress controller with owide
+kubectl get pod -o wide |grep ingress
+myingress-ingress-nginx-controller-mn52x          1/1     Running   0          10h     192.168.1.138   dp     <none>           <none>
+myingress-ingress-nginx-controller-zm7qz          1/1     Running   0          10h     192.168.0.77    cp     <none>           <none>
+#we will curl one of them but it wont work cause we need to passe a header and spoof the hostname
+curl 192.168.1.138
+```
+```html
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+```
+```sh
+#lets check using ingress service (not admission)
+kubectl get svc -o wide | grep ingress
+myingress-ingress-nginx-controller             LoadBalancer   10.99.124.35    <pending>     80:32720/TCP,443:31053/TCP   10h     app.kubernetes.io/component=controller,app.kubernetes.io/instance=myingress,app.kubernetes.io/name=ingress-nginx
+myingress-ingress-nginx-controller-admission   ClusterIP      10.102.59.239   <none>        443/TCP                      10h     app.kubernetes.io/component=controller,app.kubernetes.io/instance=myingress,app.kubernetes.io/name=ingress-nginx
+```
+Even if we curl the controller service we still need to add header, else we get 404:
+```sh
+curl 10.99.124.35
+```
+```html
+<html>
+<head><title>404 Not Found</title></head>
+```
+
+To simulate accessing a specific domain while using an IP address, you can use the `-H` option to add a custom `Host` header to your HTTP request. The `Host` header is required in every HTTP/1.1 request and tells the server which hostname you want to reach. For example:
+
+```
+GET / HTTP/1.1
+Host: www.example.com
+```
+
+This is important because many servers host multiple domains (virtual hosts) on the same IP address. By specifying the `Host` header (e.g., with `-H "Host: www.example.com"`), you can make the server respond as if you accessed it via the actual domain name, even when connecting directly to its IP address.
+
+```sh
+#spoofing www.external.com on the svc ip 10.99.124.35
+ curl -H "Host: www.external.com" http://10.99.124.35
+ ```
+ ```html
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+```
+
+
+## Admission Controllers in Kubernetes
+
+Admission controllers are plugins that intercept requests to the Kubernetes API server **after authentication/authorization but before objects are persisted to etcd**. They can validate, mutate, or even deny requests.
+
+### Types of Admission Webhooks
+
+- **Validating Admission Webhooks**
+    - Can reject objects if they fail custom logic.
+    - *Example*: Prevent creating pods without resource limits.
+
+- **Mutating Admission Webhooks**
+    - Can modify objects before they’re saved.
+    - *Example*: Inject sidecars (like Linkerd or Istio), add default labels, etc.
+
+**Differences Between Mutating and Validating Webhooks**
+
+| Feature           | Mutating Webhooks                                         | Validating Webhooks                                         |
+|-------------------|----------------------------------------------------------|-------------------------------------------------------------|
+| Purpose           | Modify the resource (mutate) before storing it.           | Validate the resource and decide if it should be accepted.   |
+| Actions           | Can change resource fields (e.g., add annotations).       | Cannot modify the resource, only approve/reject it.          |
+| Triggering Event  | Triggered on CREATE, UPDATE, and DELETE.                  | Triggered on CREATE, UPDATE, and DELETE.                     |
+| Response          | Modifies the resource and sends back an updated version.  | Sends a pass/fail response based on the resource’s validity. |
+| Example Use Case  | Injecting sidecar containers, adding default labels.      | Enforcing naming conventions or mandatory labels/annotations.|
+
+### Common Use Cases
+- Enforce security (e.g., block privileged containers)
+- Inject env vars or init containers
+- Auto-label or annotate resources
+- Integrate with Gatekeeper, Kyverno, Linkerd, Istio
+
+---
+
+## Example: ValidatingWebhookConfiguration
+
+```yaml
+apiVersion: admissionregistration.k8s.io/v1  # API version for admission webhook configurations
+kind: ValidatingWebhookConfiguration         # Specifies this is a Validating webhook (used for rejecting invalid resources)
+metadata:
+    name: validate-pods                        # Name of the webhook configuration object
+webhooks:
+    - name: example.webhook.k8s.io             # Unique name for the webhook, must be a DNS-compliant name
+        rules:
+            - apiGroups: [""]                      # Target the core API group (e.g., for pods, services, etc.)
+                apiVersions: ["v1"]                  # Target version of the API; pods are v1 in the core group
+                operations: ["CREATE"]               # Hook only triggers on CREATE operations
+                resources: ["pods"]                  # Only apply this webhook to Pod resources
+        clientConfig:
+            service:
+                name: webhook-service                # Kubernetes service name hosting the webhook
+                namespace: webhook-namespace         # Namespace where the webhook service is running
+                path: "/validate"                    # URL path that will handle validation requests
+            caBundle: <base64-encoded-CA>          # Base64-encoded certificate authority to trust the webhook server
+        failurePolicy: Fail                      # Optional - Fail the request if the webhook is unavailable
+        admissionReviewVersions: ["v1"]          # AdmissionReview API versions supported by the webhook
+```
+
+### Kubernetes Validating Webhook Workflow
+
+1. **Create ValidatingWebhookConfiguration**  
+    Define a webhook with rules for validating resources (e.g., Pods, Deployments) in the cluster.
+
+2. **Trigger Admission Control**  
+    When a resource is created or updated, the Kubernetes API triggers the webhook validation process.
+
+3. **Send Resource to Webhook**  
+    The resource (e.g., Pod) is sent to the webhook endpoint for validation.
+
+4. **Webhook Validation Logic**  
+    The webhook server validates the resource based on custom rules (e.g., naming conventions, required labels).
+
+5. **Admission Review Response**  
+    The webhook responds with either approval (`allowed: true`) or rejection (`allowed: false`) along with an error message if applicable.
+
+6. **Kubernetes API Server Action**  
+    Based on the webhook response, the API server either proceeds with or rejects the resource creation/update.
+
+7. **Monitor and Adjust**  
+    Admins monitor webhook behavior and can adjust rules as needed.
+
+
+>In our case we have the **K8S API Server**(Admission Control) -> sees **Ingress** *Create* -> send to -> **NGINX Admission WebHook** *ValidatingWebhookConfigurationbhook* -> Send to **Controller Admission Service** *myingress-ingress-nginx-controller-admission* -> send it to **NGINX Controller POD** on /webhook *myingress-ingress-nginx-controller-mn52x* for validation -> send back to SVC to WEBHOOK > Tells API Server its OK!
+
+Get the nginx ValidationWebHook
+```sh
+kubectl get ValidatingWebhookConfiguration myingress-ingress-nginx-admission -o yaml
+```
+```yaml
+apiVersion: admissionregistration.k8s.io/v1 # Specifies the API version for the ValidatingWebhookConfiguration resource.
+kind: ValidatingWebhookConfiguration # Defines the type of Kubernetes resource (ValidatingWebhookConfiguration in this case).
+metadata: # Metadata section contains information about the resource.
+...
+
+webhooks: # List of webhook configurations for validating admission requests.
+- admissionReviewVersions: # Specifies the API versions supported for admission review requests and responses.
+  - v1 # Indicates that version "v1" of admission review is supported.
+  clientConfig: # Configuration for connecting to the webhook server.
+    caBundle: .... # Base64-encoded CA certificate used to verify the webhook server's TLS certificate.
+    service:
+      name: myingress-ingress-nginx-controller-admission # Name of the Service that hosts the webhook server.
+      namespace: default # Namespace where the Service is located.
+      path: /networking/v1/ingresses # Path on the webhook server to send admission requests.
+      port: 443 # Port on which the webhook server is listening.
+  failurePolicy: Fail # Specifies the policy for handling webhook failures (Fail means reject the request if the webhook fails).
+  matchPolicy: Equivalent # Specifies how the rules are matched (Equivalent means match resources with the same semantic meaning).
+  name: validate.nginx.ingress.kubernetes.io # Name of the webhook configuration.
+  namespaceSelector: {} # Empty selector means the webhook applies to all namespaces.
+  objectSelector: {} # Empty selector means the webhook applies to all objects.
+  rules: # Defines the rules for when the webhook is triggered.
+  - apiGroups:
+    - networking.k8s.io # Applies to the "networking.k8s.io" API group.
+    apiVersions:
+    - v1 # Applies to version "v1" of the API.
+    operations:
+    - CREATE # Trigger the webhook on CREATE operations.
+    - UPDATE # Trigger the webhook on UPDATE operations.
+    resources:
+    - ingresses # Applies to "ingresses" resources.
+    scope: '*' # Specifies the scope of the resources (e.g., cluster-wide or namespace-specific). '*' means all scopes.
+  sideEffects: None # Indicates that the webhook has no side effects.
+  timeoutSeconds: 10 # Specifies the timeout for the webhook call in seconds.
+```
+And the service that process the request and direct it to the pod:
+```sh
+kubectl get svc myingress-ingress-nginx-controller-admission -o yaml
+```
+```yaml
+apiVersion: v1  # Specifies the API version for the resource (v1 for core Kubernetes objects like Service).
+kind: Service  # Defines the type of Kubernetes resource (Service in this case).
+metadata:  # Metadata section contains information about the resource.
+  #....
+  name: myingress-ingress-nginx-controller-admission  # Name of the Service resource.
+  namespace: default  # Namespace where the Service is deployed.
+  resourceVersion: "8162693"  # Internal version of the resource for tracking changes.
+  uid: 69a6c3ba-1800-4d23-b1bf-b0b60fb3fa0b  # Unique identifier for the resource.
+  #....
+spec:  # Specification of the Service.
+  clusterIP: 10.102.59.239  # Internal IP address assigned to the Service.
+  clusterIPs:  # List of internal IPs assigned to the Service (for multi-IP families).
+  - 10.102.59.239  # IPv4 address of the Service.
+  internalTrafficPolicy: Cluster  # Determines how traffic is routed within the cluster.
+  ipFamilies:  # Specifies the IP families supported by the Service.
+  - IPv4  # Indicates the Service uses IPv4 addresses.
+  ipFamilyPolicy: SingleStack  # Specifies that the Service uses a single IP family (IPv4).
+  ports:  # Defines the ports exposed by the Service.
+  - appProtocol: https  # Application protocol used by the port (HTTPS in this case).
+    name: https-webhook  # Name of the port (used for identification).
+    port: 443  # Port number exposed by the Service.
+    protocol: TCP  # Protocol used by the port (TCP in this case).
+    targetPort: webhook  # Target port on the pods to which traffic is forwarded.
+  selector:  # Selector to identify the pods this Service routes traffic to.
+    app.kubernetes.io/component: controller  # Matches pods with this label.
+    app.kubernetes.io/instance: myingress  # Matches pods with this label.
+    app.kubernetes.io/name: ingress-nginx  # Matches pods with this label.
+  sessionAffinity: None  # Specifies whether session affinity is enabled (None means disabled).
+  type: ClusterIP  # Type of Service (ClusterIP exposes the Service only within the cluster).
+status:  # Current status of the Service.
+  loadBalancer: {}  # Empty because this is not a LoadBalancer type Service.
+```
+Inside the pod the request is managed by :
+```sh
+kubectl get pod myingress-ingress-nginx-controller-mn52x -o yaml
+```
+```yaml
+...
+ ports:
+    - containerPort: 80
+      name: http
+      protocol: TCP
+    - containerPort: 443
+      name: https
+      protocol: TCP
+    - containerPort: 8443 
+      name: webhook # <--- manage the validation
+      protocol: TCP
+    readinessProbe:
+      failureThreshold: 3
+      httpGet:
+        path: /healthz
+        port: 10254
+        scheme: HTTP
+...
+```
+
+**LINKERD onto NGINX Controller**
+Let us inject Linkerd annotation into nginx controller ingress 
+```sh
+kubectl get ds myingress-ingress-nginx-controller -o yaml | linkerd inject --ingress - | kubectl apply -f -
+
+daemonset "myingress-ingress-nginx-controller" injected
+
+Warning: resource daemonsets/myingress-ingress-nginx-controller is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+daemonset.apps/myingress-ingress-nginx-controller configured
+```
+
+#our pod have restarted and took in the configuration:
+```sh
+kubectl get pod | grep ingress
+myingress-ingress-nginx-controller-mt2dt          2/2     Running   0          92s
+myingress-ingress-nginx-controller-x8pgg          2/2     Running   0          62s
+```
+
+On linkerd interface 
+![linkerd8.png](linkerd8.png)
+
+Lets curl and sees what happen in Linkerd
+```sh
+for i in {1..250}; do curl -H "Host: www.external.com" http://10.99.124.35; done
+```
+![linkerd9.png](linkerd9.png)
+
+At this stage, we’ll add one more server as an example—after that, the same process can be repeated as many times as needed to add additional servers.
+
+Lets go inside web-two pod and modify the index HTML page
+```sh
+kubectl get pod | grep web-
+web-one-8d48dcf57-dm2rr                           1/1     Running   0          25h
+web-two-64558f4b75-qfzq8                          1/1     Running   0          25h
+kubectl exec -it web-two-64558f4b75-qfzq8 -- /bin/bash
+root@web-two-64558f4b75-qfzq8:/# apt-get update
+root@web-two-64558f4b75-qfzq8:/# apt-get install -y vim
+root@web-two-64558f4b75-qfzq8:/# vim /usr/share/nginx/html/index.html
+```
+```html
+<!DOCTYPE html>
+<html>
+<head>
+<title>INTERNAL WELCOME PAGE to OmarCluster</title>
+<style>
+html { color-scheme: light dark; }
+body { width: 35em; margin: 0 auto;
+font-family: Tahoma, Verdana, Arial, sans-serif; }
+</style>
+</head>
+<body>
+<h1>INTERNAL WELCOME PAGE to OmarCluster</h1>
+```
+```sh
+root@web-two-64558f4b75-qfzq8:/# exit
+#lets add the new server in our ingress with a new url
+kubectl edit ingress ingress-test
+```
+```yaml
+...
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: internal.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: web-two
+            port:
+              number: 80
+        path: /
+        pathType: ImplementationSpecific
+  - host: www.external.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: web-one
+            port:
+              number: 80
+        path: /
+        pathType: ImplementationSpecific
+status:
+  loadBalancer: {}
+...
+```
+
+Lets curl it
+```sh
+for i in {1..50}; do curl -H "Host: internal.org" http://10.99.124.35; done
+```
+On linkerd
+![linkerd10.png](linkerd10.png)
+![linkerd11.png](linkerd11.png)
+
+## GATEWAY API TP
+
+### Install Gateway API for NGINX
+As explained before, GATEWAY API is not part of k8s. Before using linkerd, we have already installed the GATEWAY CRDs custom resources definitions using:
+```sh
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml
+
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io created
+```
+- Source: Kubernetes SIGs (official)
+- Purpose: Standard Gateway API CRDs for any implementation
+- Version: Manually selected (e.g., v1.3.0)
+
+Now we will use the NGINX GATEWAY Custom tailord API
+```sh
+kubectl kustomize "https://github.com/nginx/nginx-gateway-fabric/config/crd/gateway-api/standard?ref=v1.6.2" | kubectl apply -f -
+
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io configured
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io configured
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io configured
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io configured
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io configured
+```
+- Source: NGINX Gateway Fabric
+- Purpose: CRDs tailored for NGINX Gateway Fabric (v1.6.2)
+- Usage: Ensures compatibility with NGINX Gateway Fabric
+
+> Installing NGINX Gateway API CRDs after the official ones will override them. The CRDs (e.g., gateways.gateway.networking.k8s.io) are updated in place—no duplication occurs, but some fields may be replaced or updated, but do be carreful, it all depend on what controller you want to install
+
+### install NGINX Gateway Fabric CRDs
+
+**After install Gateway API tailord for NGINX we install NGINX Gateway Fabric CRDs**
+```sh
+kubectl apply -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/v1.6.1/deploy/crds.yaml
+customresourcedefinition.apiextensions.k8s.io/clientsettingspolicies.gateway.nginx.org created
+customresourcedefinition.apiextensions.k8s.io/nginxgateways.gateway.nginx.org created
+customresourcedefinition.apiextensions.k8s.io/nginxproxies.gateway.nginx.org created
+customresourcedefinition.apiextensions.k8s.io/observabilitypolicies.gateway.nginx.org created
+customresourcedefinition.apiextensions.k8s.io/snippetsfilters.gateway.nginx.org created
+customresourcedefinition.apiextensions.k8s.io/upstreamsettingspolicies.gateway.nginx.org created
+```
+
+### install NGINX Gateway Fabric Controller
+
+**After we install NGINX Gateway Fabric CRDs we install the NGINX Gateway Fabric**
+```sh
+kubectl apply -f https://raw.githubusercontent.com/nginx/nginx-gateway-fabric/v1.6.1/deploy/default/deploy.yaml
+namespace/nginx-gateway created
+serviceaccount/nginx-gateway created
+clusterrole.rbac.authorization.k8s.io/nginx-gateway created
+clusterrolebinding.rbac.authorization.k8s.io/nginx-gateway created
+configmap/nginx-includes-bootstrap created
+service/nginx-gateway created
+deployment.apps/nginx-gateway created
+gatewayclass.gateway.networking.k8s.io/nginx created
+nginxgateway.gateway.nginx.org/nginx-gateway-config created
+```
+
+Verify the NGINX Gateway Fabric is runing:
+```sh
+kubectl get all -n nginx-gateway
+NAME                                READY   STATUS    RESTARTS   AGE
+pod/nginx-gateway-96f76cdcf-tlgmc   2/2     Running   0          44s
+
+NAME                    TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)                      AGE
+service/nginx-gateway   LoadBalancer   10.104.234.221   <pending>     80:31192/TCP,443:31607/TCP   44s
+
+NAME                            READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/nginx-gateway   1/1     1            1           44s
+
+NAME                                      DESIRED   CURRENT   READY   AGE
+replicaset.apps/nginx-gateway-96f76cdcf   1         1         1       44s
+```
+
+The NGINX Gateway Fabric service is initially of type `LoadBalancer`. While the external IP is pending, Kubernetes allocates two random ports on every node in the cluster. To access the NGINX Gateway Fabric, use the IP address of any cluster node along with these allocated ports.
+
+For simplicity, you can change the service type to `NodePort`:
+
+```sh
+kubectl patch service/nginx-gateway -n nginx-gateway -p '{"spec": {"type": "NodePort"}}'
+kubectl get service/nginx-gateway -n nginx-gateway
+```
+
+Deploy an application and expose it with a Kubernetes service named `books`. Next, define two Gateway API resources: a `Gateway` and an `HTTPRoute`. These resources will work together to route all HTTP requests targeting the hostname `shop.example.com` to the `books` service.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: books
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: books
+  template:
+    metadata:
+      labels:
+        app: books
+    spec:
+      containers:
+      - name: book
+        image: nginx
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: books
+spec:
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  selector:
+    app: books
+```
+
+dryrun on both client and server:
+```sh
+kubectl  apply -f books.yaml --dry-run=client
+deployment.apps/books created (dry run)
+service/books created (dry run)
+kubectl  apply -f books.yaml --dry-run=server
+deployment.apps/books created (server dry run)
+service/books created (server dry run)
+```
+then create:
+```sh
+kubectl apply -f books.yaml
+deployment.apps/books created
+service/books created
+kubectl get svc/books deploy/books
+
+NAME            TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)   AGE
+service/books   ClusterIP   10.101.113.112   <none>        80/TCP    2m57s
+
+NAME                    READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/books   2/2     2            2           2m57s
+```
+
+To direct traffic to the books application, we'll set up a Gateway and an HTTPRoute. The Gateway acts as the entry point for HTTP traffic into the cluster. Specifically, we'll configure a shop Gateway to listen on port 80, allowing HTTP requests to reach the cluster and be routed to the books application.
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1 # API version of the resource.
+kind: Gateway # Type of resource.
+metadata: # Metadata info.
+  name: shop # Gateway name.
+spec: # Gateway spec.
+  gatewayClassName: nginx # Gateway class.
+  listeners: # Listener config.
+  - name: http # Listener name.
+    port: 80 # Listener port.
+    protocol: HTTP # Listener protocol.
+```
+```sh
+#create
+kubectl apply -f gateway.yaml
+gateway.gateway.networking.k8s.io/shop created
+#check
+kubectl get Gateway
+NAME   CLASS   ADDRESS   PROGRAMMED   AGE
+shop   nginx             True         11s
+```
+
+To route HTTP traffic from the gateway to the books service, we create an `HTTPRoute` resource and attach it to the gateway. It should define a routing rule that directs all traffic with the hostname `shop.example.com` from the gateway to the books service.
+NGINX Gateway Fabric manages both the shop gateway and the books `HTTPRoute`. It automatically configures its data plane (NGINX) to route all HTTP requests for `shop.example.com` to the pods targeted by the books service.
+
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1 # API version of the resource.
+kind: HTTPRoute # Type of resource.
+metadata: # Metadata info.
+  name: books # Name of the HTTPRoute.
+spec: # Specification of the HTTPRoute.
+  parentRefs: # References to parent gateways.
+  - name: shop # Name of the parent gateway.
+  hostnames: # Hostname for the route.
+  - "shop.example.com" # Hostname value.
+  rules: # Routing rules.
+  - matches: # Match conditions.
+    - path: # Path matching config.
+        type: PathPrefix # Match paths with the given prefix.
+        value: / # Path prefix to match.
+    backendRefs: # Backend references.
+    - name: books # Name of the backend service.
+      port: 80 # Port of the backend service.
+```
+```sh
+#create
+kubectl apply -f httproute.yaml
+httproute.gateway.networking.k8s.io/books created
+#check
+kubectl get HTTPRoute
+NAME    HOSTNAMES              AGE
+books   ["shop.example.com"]   10s
+```
+
+The Gateway API and HTTPRoute have been deployed successfully. To verify the configuration, lets send a request to the Node IP and node port of the NGINX gateway Fabric. 
+First we send a request to the root path `/`. Since the `shop` HTTPRoute is configured to route all traffic—regardless of the path—to the `books` application, any requests (including those to `/`) should be handled by the `books` pods.
+
+```bash
+curl --resolve shop.example.com:31192:10.2.0.2 http://shop.example.com:31192/
+```
+- `curl`: Command-line tool to transfer data from or to a server.
+- `--resolve shop.example.com:31192:10.2.0.2`: Instructs `curl` to resolve `shop.example.com` on port `31192` to the IP address `10.2.0.2`, bypassing DNS.
+- `http://shop.example.com:31192/`: The URL to request. The hostname remains `shop.example.com`, but the connection is made to `10.2.0.2:31192`.
+
+```html
+<!--output-->
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+<style>
+```
+
+> useful for testing or debugging, especially when directing traffic to a specific server (such as in a staging environment) without modifying your system's DNS settings.
+
+Requests to hostnames other than “shop.example.com” should not be routed to the books application, since the books HTTPRoute only matches requests with the shop.example.com” hostname. To verify this, send a request to the hostname “test.example.com”:
+```bash
+curl --resolve test.example.com:31192:10.2.0.2 http://test.example.com:31192/
+```bash
+```
+```html
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+<center><h1>404 Not Found</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>
+```
