@@ -7258,3 +7258,483 @@ curl --resolve test.example.com:31192:10.2.0.2 http://test.example.com:31192/
 </body>
 </html>
 ```
+
+# SCHEDULING
+
+## kube-scheduler
+
+As Kubernetes deployments grow in size and complexity, effective scheduling becomes increasingly important. The **kube-scheduler** is responsible for deciding which nodes will run each Pod, using topology-aware *(take into account the physical or logical layout (topology))* algorithms to optimize placement.
+
+Users can assign priorities to Pods, allowing higher-priority Pods to evict lower-priority ones during resource shortages. This ensures critical workloads are scheduled under heavy load.
+
+The scheduler maintains awareness of all nodes in the cluster, filtering and scoring them to select the most suitable node for each Pod. Once a decision is made, the Pod specification is sent to the kubelet on the chosen node for creation.
+
+Scheduling decisions can be influenced using labels and selectors on nodes and Pods. Features such as **affinity**, **taints**, **tolerations**, and **pod bindings** allow fine-grained control over where Pods are scheduled. For example, tolerations let a Pod be scheduled on a node with a taint that would otherwise prevent scheduling.
+
+Not all scheduling constraints are strict. Affinity rules may prefer nodes but allow others if needed. Some settings, like `requiredDuringScheduling` and `requiredDuringExecution`, can trigger Pod eviction if conditions change.
+
+For advanced use cases, you can implement and deploy a custom scheduler tailored to your cluster's specific needs.
+
+## Node Selection in kube-scheduler
+
+The kube-scheduler selects a Node for a Pod through two main stages: **Filtering** and **Scoring**.
+
+![Filtering+Scoring.png](Filtering+Scoring.png)
+
+![scheduler-worlkflow.gif](scheduler-worlkflow.gif)
+
+### Filtering
+
+During the Filtering stage, the scheduler evaluates all available Nodes to determine which ones can accommodate the Pod's requirements. For example, the `PodFitsResources` filter checks if a Node has **enough resources** ***(CPU, memory, etc.)*** to meet the Pod’s requests and limits. Only Nodes that pass all filters are included in the candidate list. If no Nodes are suitable, the list stay empty > the Pod remains unscheduled.
+
+### Scoring
+
+In the Scoring stage, the scheduler assigns a score to each candidate Node based on various criteria defined in the scheduler’s configuration. The Node with the highest score is selected as the placement for the Pod.
+
+> **Note:** You can customize the filtering and scoring behavior of the scheduler using **scheduling configuration profiles.**
+
+You can customize the kube-scheduler by providing a configuration file and specifying its path as a command-line argument. The scheduler supports **scheduling profiles**, which let you configure the various stages of the scheduling process. Each stage, known as an **extension point**, can be extended or modified using plugins.
+
+Scheduling profiles define how plugins interact with these extension points, allowing you to tailor the scheduler's behavior to your needs. There are twelve extension points in total, each representing a stage in the scheduling workflow where plugins can influence the scheduler's decisions.
+
+## Extension Points
+
+Kubernetes scheduling supports several extension points, each allowing plugins to customize the scheduling process:
+
+1. **queueSort**  
+   Provides an ordering function to sort pending Pods in the scheduling queue. Only one queueSort plugin can be enabled at a time.  
+2. **preFilter**  
+   Pre-processes or checks information about a Pod or the cluster before filtering. Can mark a Pod as unschedulable.  
+3. **filter**  
+   Equivalent to Predicates in a scheduling policy. Filters out nodes that cannot run the Pod, called in the configured order. If no nodes pass all filters, the Pod is marked as unschedulable.  
+4. **postFilter**  
+   Invoked in order when no feasible nodes are found for a Pod. If any postFilter plugin marks the Pod as schedulable, the remaining plugins are skipped.  
+5. **preScore**  
+   An informational extension point for performing work before scoring.  
+6. **score**  
+   Assigns a score to each node that passed filtering. The scheduler selects the node with the highest weighted score sum.  
+7. **reserve**  
+   Notifies plugins when resources are reserved for a Pod. Also implements an Unreserve call if a failure occurs during or after reservation.  
+8. **permit**  
+   Can prevent or delay the binding of a Pod.  
+9. **preBind**  
+   Performs any required work before a Pod is bound.  
+10. **bind**  
+    Binds a Pod to a Node. Called in order; once a plugin completes the binding, the rest are skipped. At least one bind plugin is required.  
+11. **postBind**  
+    An informational extension point called after a Pod has been bound.  
+12. **multiPoint**  
+    A configuration-only field that enables or disables plugins for all applicable extension points simultaneously.
+
+## Scheduling Plugins
+
+The following plugins are enabled by default and implement one or more scheduling extension points in Kubernetes:
+
+- **ImageLocality**  
+    Favors nodes that already have the container images required by the Pod.  
+    _Extension points:_ `score`
+
+- **TaintToleration**  
+    Handles taints and tolerations for Pods and nodes.  
+    _Extension points:_ `filter`, `preScore`, `score`
+
+- **NodeName**  
+    Ensures the Pod's specified node name matches the current node.  
+    _Extension points:_ `filter`
+
+- **NodePorts**  
+    Checks if a node has available ports for the Pod's requested ports.  
+    _Extension points:_ `preFilter`, `filter`
+
+- **NodeAffinity**  
+    Implements node selectors and node affinity rules.  
+    _Extension points:_ `filter`, `score`
+
+- **PodTopologySpread**  
+    Distributes Pods across topology domains to improve availability.  
+    _Extension points:_ `preFilter`, `filter`, `preScore`, `score`
+
+- **NodeUnschedulable**  
+    Filters out nodes marked as unschedulable (`.spec.unschedulable: true`).  
+    _Extension points:_ `filter`
+
+- **NodeResourcesFit**  
+    Checks if the node has sufficient resources for the Pod's requirements.
+
+- **NodeResourcesBalancedAllocation**  
+    Prefers nodes that result in more balanced resource usage when scheduling the Pod.  
+    _Extension points:_ `score`
+
+For more details, see the [Kubernetes scheduling plugins documentation](https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins).
+
+## Multiple Scheduler Profiles
+
+You can configure `kube-scheduler` to run with multiple scheduling profiles. Each profile must have a unique scheduler name and can use a different set of plugins.
+
+```yaml
+apiVersion: kubescheduler.config.k8s.io/v1
+kind: KubeSchedulerConfiguration
+profiles:
+    - schedulerName: default-scheduler
+    - schedulerName: custom-scheduler
+        plugins:
+            preFilter:
+                disabled:
+                    - name: '*'
+            filter:
+                disabled:
+                    - name: '*'
+            postFilter:
+                disabled:
+                    - name: '*'
+```
+
+In this example, the scheduler runs with two profiles:
+
+- **default-scheduler**: Uses the default set of plugins.
+- **custom-scheduler**: Disables all preFilter, filter, and postFilter plugins.
+
+To use a specific profile, set the corresponding scheduler name in your Pod specification under `.spec.schedulerName`:
+
+```yaml
+spec:
+    schedulerName: custom-scheduler
+```
+
+**Notes:**
+- By default, a profile named `default-scheduler` is created with the standard plugins.
+- Each profile must have a unique `schedulerName`.
+- If `.spec.schedulerName` is not set in a Pod, the `kube-apiserver` assigns `default-scheduler`. Ensure a profile with this name exists to schedule such Pods.
+
+## Pod Specification
+
+Most scheduling decisions in Kubernetes are defined within the Pod specification (`PodSpec`). The PodSpec includes several key fields that influence how and where Pods are scheduled:
+
+- **nodeName**
+- **nodeSelector**
+- **affinity**
+- **schedulerName**
+- **tolerations**
+
+### nodeName and nodeSelector
+
+- `nodeName`: Directly assigns a Pod to a specific node by name.
+- `nodeSelector`: Assigns a Pod to nodes that match specific label criteria, allowing selection of a group of nodes.
+
+### Affinity and Anti-Affinity
+
+- **Affinity**: Specifies rules about which nodes a Pod should (or should not) be scheduled on, based on labels. Affinity can be required or preferred.
+- **Anti-affinity**: Prevents Pods from being scheduled on certain nodes, often to avoid co-locating specific workloads.
+
+If a preferred rule is used, the scheduler will try to honor it, but may schedule the Pod elsewhere if no matching nodes are available.
+
+### Taints and Tolerations
+
+- **Taints**: Mark nodes so that Pods are not scheduled onto them unless they tolerate the taint
+- **Tolerations**: Allow Pods to be scheduled onto tainted nodes if they meet the toleration criteria.
+
+### schedulerName
+
+If the default scheduler does not meet your requirements, you can deploy a custom scheduler. By setting the `schedulerName` field in the PodSpec, you can specify which scheduler should be used for that Pod.
+
+## NodeSelector vs Affinity Taints
+
+![NodeSelector_Affinity_Tains.jpg](NodeSelector_Affinity_Tains.jpg)
+
+## Specifying the Node Label
+
+The `nodeSelector` field in a Pod specification allows you to schedule Pods onto specific nodes by matching one or more key-value pairs against node labels.
+
+```yaml
+spec:
+    containers:
+        - name: redis
+            image: redis
+    nodeSelector:
+        net: fast
+```
+
+This Pod will only run on nodes labeled `net=fast` (just an example). If no such node exists, the Pod stays `Pending`. For more flexible scheduling, use node affinity.
+
+## Scheduler Profiles
+
+You can also configure the scheduler using scheduling profiles, they let you customize the scheduler by specifying which plugins run at various extension points during the scheduling process.
+
+An extension point is a specific stage in the scheduler’s workflow where plugins can be invoked to influence scheduling decisions. The twelve extension points are:
+
+- `queueSort`
+- `preFilter`
+- `filter`
+- `postFilter`
+- `preScore`
+- `score`
+- `reserve`
+- `permit`
+- `preBind`
+- `bind`
+- `postBind`
+- `multiPoint`
+
+Many plugins—some default, others optional—affect how the scheduler selects nodes. See the [Kubernetes documentation](https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins) for a full list.
+
+Common scheduler plugins and their extension points:
+
+- **ImageLocality**: Favors nodes with required images (`score`).
+- **TaintToleration**: Handles taints/tolerations (`filter`, `preScore`, `score`).
+- **NodeName**: Matches Pod node name (`filter`).
+- **NodePorts**: Checks node port availability (`preFilter`, `filter`).
+- **NodeAffinity**: Implements node selectors/affinity (`filter`, `score`).
+- **PodTopologySpread**: Enforces topology spread (`preFilter`, `filter`, `preScore`, `score`).
+- **NodeUnschedulable**: Skips unschedulable nodes (`filter`).
+- **NodeResourcesFit**: Checks node resources (`preFilter`, `filter`, `score`).
+- **NodeResourcesBalancedAllocation**: Balances resource usage (`score`).
+- **VolumeBinding**: Handles volume binding (`preFilter`, `filter`, `reserve`, `preBind`, `score`).
+- **VolumeRestrictions/Zone/NodeVolumeLimits/EBSLimits/GCEPDLimits/AzureDiskLimits**: Enforce volume constraints (`filter`).
+- **InterPodAffinity**: Enforces inter-Pod affinity/anti-affinity (`preFilter`, `filter`, `preScore`, `score`).
+- **PrioritySort**: Default queue sorting (`queueSort`).
+- **DefaultBinder**: Default binding (`bind`).
+- **DefaultPreemption**: Default preemption (`postFilter`).
+
+> Some plugins (e.g., `VolumeBinding` with StorageCapacityScoring) require specific features enabled.
+
+A scheduler can support multiple profiles simultaneously, which can eliminate the need to run multiple schedulers. Each `PodSpec` can specify which profile to use; if not specified, the `default-scheduler` profile is used.
+
+## Pod Affinity Rules
+
+![Podaffinity.png](Podaffinity.png)
+
+Affinity places Pods that communicate or share data on the same node, while anti-affinity spreads them across nodes for fault tolerance. These rules use Pod labels and operators (`In`, `NotIn`, `Exists`, `DoesNotExist`) to guide scheduling. In large clusters, evaluating these rules can affect scheduler performance.
+
+### requiredDuringSchedulingIgnoredDuringExecution
+
+When you use `requiredDuringSchedulingIgnoredDuringExecution`, the scheduler enforces a hard rule: the Pod will only be scheduled on a node if the specified condition is true. If the condition later becomes false, the Pod continues running on that node.
+
+### preferredDuringSchedulingIgnoredDuringExecution
+
+With `preferredDuringSchedulingIgnoredDuringExecution`, the scheduler tries to place the Pod on a node that matches the preference, but if none are available, it will still schedule the Pod elsewhere. This is a soft rule, expressing a preference rather than a strict requirement.
+
+### podAffinity
+
+`podAffinity` tells the scheduler to try to co-locate Pods on the same node, based on matching labels.
+
+### podAntiAffinity
+
+`podAntiAffinity` instructs the scheduler to spread Pods across different nodes, avoiding co-location.
+
+## Pod Affinity Example
+
+In this example of `affinity` and `podAffinity` settings in Pod specification, the Pod will only be scheduled onto a node that is already running another Pod with a specific label. The requirement is enforced at scheduling time, but if the label is ***later removed***, the Pod will ***not be evicted***.
+
+```yaml
+spec: # The specification of the Pod
+  affinity: # Affinity rules for scheduling the Pod
+    podAffinity: # Specifies Pod affinity rules
+      requiredDuringSchedulingIgnoredDuringExecution: # These rules must be met during scheduling but are ignored during execution
+      - labelSelector: # Selector to match labels on other Pods
+          matchExpressions: # List of label matching expressions
+          - key: security # The label key to match
+            operator: In # The operator to use for matching (e.g., In, NotIn, Exists, etc.)
+            values: # The list of values to match for the key
+            - S1 # The value of the label key that must be present
+```
+**Explanation:**  
+The Pod is scheduled only if another Pod with the label `security: S1` exists on the node; otherwise, it stays `Pending`.
+
+## Using `podAntiAffinity`
+
+**anti-affinity rules** with `podAntiAffinity` in Kubernetes is used to prevent pods from running on the same node as others pods with specific labels, helping to spread workloads and avoid single points of failure.
+
+tells the scheduler to *prefer* avoiding nodes that are running pods labeled with `security: S2`:
+
+```yaml
+podAntiAffinity: # Defines rules for avoiding scheduling pods on the same node as other pods with specific labels
+  preferredDuringSchedulingIgnoredDuringExecution: # Indicates a preference for scheduling but not a strict requirement
+  - weight: 100 # Assigns a weight to this preference; higher weight means higher priority
+    podAffinityTerm: # Specifies the conditions for pod anti-affinity
+      labelSelector: # Defines the label-based selection criteria
+        matchExpressions: # Specifies a list of label matching rules
+        - key: security # The label key to match
+          operator: In # The operator to use for matching; "In" means the value must be in the specified list
+          values: # The list of acceptable values for the label
+          - S2 # The specific value of the "security" label to match
+```
+**Explanation**
+Here we tell the scheduler to *prefer* avoiding nodes that are running pods labeled with `security: S2`
+
+- **`preferredDuringSchedulingIgnoredDuringExecution`**: Scheduler prefers to avoid matching nodes but may still schedule there if needed.
+
+- **`weight`**: Assigns a priority (1–100). Higher weights mean the scheduler will give more importance to avoiding nodes that match the condition. the scheduler will prioritize nodes with the lowest combined weight. 
+
+For instance, if one node has a pod with a podAntiAffinity rule weighted at 100, and another node has a pod with a podAntiAffinity rule weighted at 50, the scheduler will prefer the node with the lower combined weight (in this case, the node with weight 50). This is because the scheduler tries to minimize the total weight, so nodes with lower anti-affinity weights are more likely to be selected for scheduling.
+
+![antiaffinitywieght.png](antiaffinitywieght.png)
+
+> **Tip:** Use multiple weighted anti-affinity rules to fine-tune pod placement. The scheduler prefers nodes with the lowest combined weight, balancing workloads without strict constraints.
+
+## Node Affinity Rules
+
+Node affinity allows you to control Pod scheduling based on node labels, rather than the presence or absence of other Pods (as with Pod affinity/anti-affinity). This approach is similar to using `nodeSelector`, but is more flexible and is expected to eventually replace `nodeSelector`.
+
+### Supported Operators
+
+- `In`
+- `NotIn`
+- `Exists`
+- `DoesNotExist`
+
+### Types of Node Affinity
+
+- **`requiredDuringSchedulingIgnoredDuringExecution`**: Hard requirement for scheduling. The Pod will only be scheduled on nodes that meet the criteria.
+- **`preferredDuringSchedulingIgnoredDuringExecution`**: Soft preference. The scheduler will try to place the Pod on a matching node, but will still schedule it elsewhere if necessary.
+- **Planned for future:** `requiredDuringSchedulingRequiredDuringExecution`.
+
+> **Note:** Until `nodeSelector` is fully deprecated, both `nodeSelector` and `requiredDuringSchedulingIgnoredDuringExecution` rules must be satisfied for a Pod to be scheduled.
+
+### Node Affinity Example
+
+```yaml
+spec: # Specifies the configuration for the pod or workload
+  affinity: # Defines rules for scheduling pods based on affinity or anti-affinity
+    nodeAffinity: # Specifies rules for scheduling pods to specific nodes
+      preferredDuringSchedulingIgnoredDuringExecution: # Indicates a preference for scheduling but not a strict requirement
+      - weight: 1 # Assigns a low priority to this preference; higher weights mean higher priority
+        preference: # Specifies the conditions for the preferred node
+          matchExpressions: # Defines label-based selection criteria
+          - key: diskspeed # The label key to match on the node
+            operator: In # The operator to use for matching; "In" means the value must be in the specified list
+            values: # The list of acceptable values for the label
+            - quick # One of the acceptable values for the "diskspeed" label
+            - fast # Another acceptable value for the "diskspeed" label
+```
+
+This configuration sets a preferred node affinity for pods. It increases the likelihood that the pod will be scheduled on nodes labeled with `diskspeed: quick` or `diskspeed: fast`. However, if no such nodes are available, the pod can still be scheduled on other nodes. The `weight` determines the preference strength for matching nodes, **weight** refers to a numerical value assigned to a node (or a rule, option, etc.):
+
+- **Higher weight**: The node is more likely to be selected or matched.
+- **Lower weight**: The node is less likely to be chosen.
+
+**Analogy:** for your favorite snack. If you give "chocolate" a weight of 10 and "chips" a weight of 2, chocolate is much more likely to win.
+
+![node_affinity.png](node_affinity.png)
+
+## Taints
+
+A node with a **taint** repels Pods that lack a matching toleration. Taints are specified as `key=value:effect`, where both key and value are defined by the administrator.
+If a Pod does not have a **toleration** for a node's taint, the scheduler will avoid placing the Pod on that node.
+
+### Taint Scheduling Effects
+
+Kubernetes defines three main effects for handling Pod scheduling with taints and tolerations:
+
+#### 1. `NoSchedule`
+- **Description:** The scheduler will not place a Pod on this node unless the Pod has a matching toleration.
+- **Note:** Existing Pods already running on the node are not affected, regardless of their tolerations.
+
+#### 2. `PreferNoSchedule`
+- **Description:** The scheduler will try to avoid placing a Pod on this node unless there are no other suitable (untainted) nodes available.
+- **Note:** Existing Pods are not affected.
+
+#### 3. `NoExecute`
+- **Description:** 
+    - Existing Pods without a matching toleration will be evicted from the node.
+    - New Pods without a matching toleration will not be scheduled on the node.
+- **Special Case:** 
+    - If a Pod has a `tolerationSeconds` value set, it will remain on the node for that duration before being evicted.
+    - For certain node issues, the kubelet may automatically add a 300-second toleration to prevent unnecessary evictions.
+
+![taint_effect.png](taint_effect.png)
+
+> If a node has multiple taints, the scheduler ignores any taints that have matching tolerations on a pod. Only taints without corresponding tolerations will impact pod scheduling.
+
+**Note:** The use of `TaintBasedEvictions` is still an **alpha feature** in Kubernetes.
+
+When a node has resource pressure, the kubelet adds taints (like `MemoryPressure`, `DiskPressure`, or `PIDPressure`). With `TaintBasedEvictions` enabled, only pods with matching tolerations stay; others are evicted. This allows for controlled, gradual evictions.
+
+**Example:**
+```yaml
+# Node tainted by kubelet due to memory pressure
+kubectl describe node <node-name>
+# Output includes:
+Taints: node.kubernetes.io/memory-pressure:NoSchedule
+```
+
+## Tolerations
+
+Tolerations allow Pods to be scheduled onto nodes with specific taints. This mechanism helps control which Pods can run on certain nodes, ensuring that only Pods with matching tolerations are scheduled on tainted nodes.
+
+### How Tolerations Work
+
+- **Taints** are applied to nodes to repel Pods that do not have matching tolerations.
+- **Tolerations** are applied to Pods, allowing them to be scheduled on nodes with matching taints.
+
+### Toleration Operators
+
+- The `operator` field in a toleration can be set to `Equal` (default) or `Exists`.
+    - `Equal` requires both `key` and `value` to match the taint.
+    - `Exists` only requires the `key` to match; if the key is empty, it matches all taints.
+- If only `key` and `operator` are specified (without `effect`), the toleration matches all effects for that key.
+
+### Example
+
+```yaml
+tolerations:
+- key: "server"
+    operator: "Equal"
+    value: "ap-east"
+    effect: "NoExecute"
+    tolerationSeconds: 3600
+```
+
+In this example, the Pod will tolerate a taint with:
+
+- `key`: `server`
+- `value`: `ap-east`
+- `effect`: `NoExecute`
+
+The taint on the node :
+
+```yaml
+kind: Node # Indicates that this is a Node resource
+metadata: # Metadata about the node
+  name: node1 # The name of the node
+spec: # Specifies the configuration for the node
+  taints: # Defines taints applied to the node
+  - key: "server" # The key for the taint
+    value: "ap-east" # The value for the taint
+    effect: "NoExecute"  # The effect of the taint; "NoSchedule" means pods without a matching toleration won't be scheduled on this node
+```
+The Pod will remain running on the tainted node for up to **3600 seconds** after the taint is applied. After this period, the Pod will be evicted from the node.
+
+> **Note:** Tolerations do not guarantee scheduling on tainted nodes; they only allow it if other scheduling requirements are met.
+
+![example_toleration1.png](example_toleration1.png)
+
+![TolerationExample.png](TolerationExample.png)
+
+## Custom Scheduler
+
+Kubernetes provides default scheduling mechanisms such as **affinity**, **taints**, and **policies**. However, if these are not flexible enough for your requirements, you can implement your own custom scheduler.
+
+> **Note:** Developing a custom scheduler is an advanced topic and is outside the scope of this course. To get started, you can explore the [Kubernetes Scheduler source code](https://github.com/kubernetes/kubernetes/tree/master/pkg/scheduler) on GitHub.
+
+### How Scheduling Works
+
+- If a **Pod** specification does **not** declare a scheduler, the **default scheduler** is used.
+- If a Pod specifies a custom scheduler and that scheduler is not running, the Pod will remain in the `Pending` state indefinitely.
+
+The outcome of scheduling is a **binding** that assigns a Pod to a specific Node. A binding is a Kubernetes API object in the `api/v1` group.  
+You can manually schedule a Pod by creating a binding, even if no scheduler is running.
+
+> **Tip:** It is possible to run multiple schedulers in a cluster at the same time.
+
+### Viewing Scheduler Events
+
+To view scheduler-related events and other cluster information, use:
+
+```sh
+kubectl get events
+```
+
+## Summary video
+
+[Watch on YouTube](https://youtu.be/rX4v_L0k4Hc?si=qIRFyE78HMQ6npgq)
+<iframe width="560" height="315" src="https://www.youtube.com/embed/rX4v_L0k4Hc?si=qIRFyE78HMQ6npgq" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
