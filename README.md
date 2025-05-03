@@ -7568,6 +7568,8 @@ Here we tell the scheduler to *prefer* avoiding nodes that are running pods labe
 For instance, if one node has a pod with a podAntiAffinity rule weighted at 100, and another node has a pod with a podAntiAffinity rule weighted at 50, the scheduler will prefer the node with the lower combined weight (in this case, the node with weight 50). This is because the scheduler tries to minimize the total weight, so nodes with lower anti-affinity weights are more likely to be selected for scheduling.
 
 ![antiaffinitywieght.png](antiaffinitywieght.png)
+![weight_explained.png](weight_explained.png)
+
 
 > **Tip:** Use multiple weighted anti-affinity rules to fine-tune pod placement. The scheduler prefers nodes with the lowest combined weight, balancing workloads without strict constraints.
 
@@ -7738,3 +7740,403 @@ kubectl get events
 
 [Watch on YouTube](https://youtu.be/rX4v_L0k4Hc?si=qIRFyE78HMQ6npgq)
 <iframe width="560" height="315" src="https://www.youtube.com/embed/rX4v_L0k4Hc?si=qIRFyE78HMQ6npgq" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
+# SCHEDULING TP
+
+## Assign Pods Using Labels
+
+First lets get the number of pod and image running inside each of our nodes:
+
+```sh
+#Nodes
+NAME   STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION    CONTAINER-RUNTIME
+cp     Ready    control-plane   51d   v1.32.1   10.2.0.2      <none>        Ubuntu 20.04.6 LTS   5.15.0-1075-gcp   containerd://1.7.25
+dp     Ready    <none>          47d   v1.32.1   10.2.0.3      <none>        Ubuntu 20.04.6 LTS   5.15.0-1075-gcp   containerd://1.7.25
+#get pods and pip WC after
+kubectl get pods --all-namespaces -o wide | grep cp
+default         books-5bcf5ccfd7-bz8pq                            1/1     Running   0              28h     192.168.0.90    cp     <none>           <none>
+default         myingress-ingress-nginx-controller-mt2dt          2/2     Running   0              2d5h    192.168.0.19    cp     <none>           <none>
+default         web-one-8d48dcf57-dm2rr                           1/1     Running   0              3d      192.168.0.26    cp     <none>           <none>
+default         web-two-64558f4b75-qfzq8                          1/1     Running   0              3d      192.168.0.185   cp     <none>           <none>
+kube-system     cilium-envoy-2xs9m                                1/1     Running   0              48d     10.2.0.2        cp     <none>           <none>
+kube-system     cilium-h9s45                                      1/1     Running   0              48d     10.2.0.2        cp     <none>           <none>
+kube-system     cilium-operator-5c7867ccd5-24jvr                  1/1     Running   2 (42d ago)    42d     10.2.0.2        cp     <none>           <none>
+kube-system     coredns-7c65d6cfc9-fpkpr                          1/1     Running   0              5d23h   192.168.0.102   cp     <none>           <none>
+kube-system     coredns-7c65d6cfc9-fxt75                          1/1     Running   0              5d23h   192.168.0.164   cp     <none>           <none>
+kube-system     etcd-cp                                           1/1     Running   1 (42d ago)    42d     10.2.0.2        cp     <none>           <none>
+kube-system     kube-apiserver-cp                                 1/1     Running   0              42d     10.2.0.2        cp     <none>           <none>
+kube-system     kube-controller-manager-cp                        1/1     Running   0              42d     10.2.0.2        cp     <none>           <none>
+kube-system     kube-proxy-hx2xw                                  1/1     Running   0              42d     10.2.0.2        cp     <none>           <none>
+kube-system     kube-scheduler-cp                                 1/1     Running   0              42d     10.2.0.2        cp     <none>           <none>
+linkerd-viz     tap-5b55c9bb76-6c8r5                              2/2     Running   1 (3d5h ago)   3d5h    192.168.0.46    cp     <none>           <none>
+linkerd-viz     web-755b796446-jvpjn                              2/2     Running   0              3d4h    192.168.0.32    cp     <none>           <none>
+nginx-gateway   nginx-gateway-96f76cdcf-tlgmc                     2/2     Running   0              41h     192.168.0.29    cp     <none>           <none>
+#wc
+kubectl get pods --all-namespaces -o wide | grep cp  | wc -l
+17
+#get image with ps
+sudo crictl ps
+CONTAINER           IMAGE               CREATED             STATE               NAME                      ATTEMPT             POD ID              POD
+72617e47cc168       a830707172e80       29 hours ago        Running             book                      0                   8ae35a1c95d17       books-5bcf5ccfd7-bz8pq
+08feca0eb98de       6d3c4dc55e9d2       41 hours ago        Running             nginx                     0                   ee41586606f4c       nginx-gateway-96f76cdcf-tlgmc
+8bd5d261da549       8c4cd00e239ee       41 hours ago        Running             nginx-gateway             0                   ee41586606f4c       nginx-gateway-96f76cdcf-tlgmc
+2d693a4b30c7e       78e25eaa557d4       2 days ago          Running             controller                0                   8eba0d0087211       myingress-ingress-nginx-controller-mt2dt
+6ebdffc27c291       f941e69465d6c       2 days ago          Running             linkerd-proxy             0                   8eba0d0087211       myingress-ingress-nginx-controller-mt2dt
+498c7597339b0       a830707172e80       3 days ago          Running             nginx                     0                   3cccc66ef5bfa       web-two-64558f4b75-qfzq8
+64e153def1539       a830707172e80       3 days ago          Running             nginx                     0                   4263cd8a9aa45       web-one-8d48dcf57-dm2rr
+eeafb5b3e0072       b7af74c87ced5       3 days ago          Running             web                       0                   ed69d330ded9d       web-755b796446-jvpjn
+4ca36bd0e167c       f941e69465d6c       3 days ago          Running             linkerd-proxy             0                   ed69d330ded9d       web-755b796446-jvpjn
+b8eed1bd0178d       dfe7111f42831       3 days ago          Running             tap                       1                   9dc3d141950b1       tap-5b55c9bb76-6c8r5
+76d7a82b1ae6a       f941e69465d6c       3 days ago          Running             linkerd-proxy             0                   9dc3d141950b1       tap-5b55c9bb76-6c8r5
+150957e81001f       c69fa2e9cbf5f       5 days ago          Running             coredns                   0                   7c58d4f788f12       coredns-7c65d6cfc9-fpkpr
+125a06e5cf4c2       c69fa2e9cbf5f       5 days ago          Running             coredns                   0                   b6d040162b6cd       coredns-7c65d6cfc9-fxt75
+3a075cbcc0f15       d3cf9fb7f3cba       6 weeks ago         Running             cilium-operator           2                   49aad977c3a77       cilium-operator-5c7867ccd5-24jvr
+60fecaa370ad5       a9e7e6b294baf       6 weeks ago         Running             etcd                      1                   c6bddf9d47237       etcd-cp
+814ea9005b0aa       019ee182b58e2       6 weeks ago         Running             kube-controller-manager   0                   6fd7c005c4bd6       kube-controller-manager-cp
+150a2d0bba8e7       95c0bda56fc4d       6 weeks ago         Running             kube-apiserver            0                   700ba10975ae6       kube-apiserver-cp
+43617b6aefa37       2b0d6572d062c       6 weeks ago         Running             kube-scheduler            0                   487c3ba52a291       kube-scheduler-cp
+e273739e9cfd4       e29f9c7391fd9       6 weeks ago         Running             kube-proxy                0                   d19da242923d0       kube-proxy-hx2xw
+9240a61216a33       b9d596d6e2d4f       6 weeks ago         Running             cilium-envoy              0                   74fb629846b25       cilium-envoy-2xs9m
+d9acf630d32d5       119e6111c0e41       6 weeks ago         Running             cilium-agent              0                   e50989e224e8b       cilium-h9s45
+#wc it
+crictl ps | wc -l
+22
+#on dp and with only WC we have
+crictl ps | wc -l
+34
+kubectl get pods --all-namespaces -o wide | grep dp  | wc -l
+19
+```
+> the number of image is more than the pod cause some pods use 2 images
+
+**>> if you have issue using `crictl`, validate that you have the correct `runtime-endpoint: "unix:///run/containerd/containerd.sock"` in `"/etc/crictl.yaml"`**
+
+```sh
+Lets label nodes by giving the `CP` > VIP Hardware, and the `DP` > Others
+#labeling CP
+kubectl label node cp status=vip
+node/cp labeled
+#labeling DP
+kubectl label node dp status=other
+node/dp labeled
+#check if label applied
+kubectl get nodes --show-labels
+NAME   STATUS   ROLES           AGE   VERSION   LABELS
+cp     Ready    control-plane   51d   v1.32.1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=cp,kubernetes.io/os=linux,node-role.kubernetes.io/control-plane=,node.kubernetes.io/exclude-from-external-load-balancers=,status=vip
+dp     Ready    <none>          47d   v1.32.1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=dp,kubernetes.io/os=linux,status=other,system=secondOne
+```
+
+Let us create a pod with 4 containers and use `nodeSelector`
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vip
+spec:
+  containers:
+  - name: vip1
+    image: busybox
+    args:
+    - sleep
+    - "1000000"
+  - name: vip2
+    image: busybox
+    args:
+    - sleep
+    - "1000000"
+  - name: vip3
+    image: busybox
+    args:
+    - sleep
+    - "1000000"
+  - name: vip4
+    image: busybox
+    args:
+    - sleep
+    - "1000000"
+  nodeSelector:
+    status: vip
+```
+```sh
+#after apply dry run and applying the file
+kubectl apply -f vip.yaml --dry-run=client
+pod/vip created (dry run)
+kubectl apply -f vip.yaml --dry-run=server
+pod/vip created (server dry run)
+kubectl apply -f vip.yaml
+pod/vip created
+#get
+kubectl get pod -o wide
+
+NAME                                              READY   STATUS    RESTARTS   AGE    IP              NODE   NOMINATED NODE
+vip                                               4/4     Running   0          116m   192.168.0.114   cp     <none>
+#crictl to check number of image, we now have 26 instead of 22
+crictl ps | wc -l
+26
+```
+
+Lets now delete the pod and delete the nodeSelector part and create the pod again
+```sh
+kubectl delete pod vip
+pod "vip" deleted
+vim vip.yaml
+```
+```yaml
+#  nodeSelector: 
+#    status: vip
+```
+Apply and check where the pod are runing:
+```sh
+kubectl apply -f vip.yaml
+kubectl get pod
+vip                                               4/4     Running   0          53s
+#on CP we have now 22 back to the original
+crictl ps | wc -l
+22
+#on worker/DP is another story we now have the 4 image added to DP
+root@dp:~# crictl ps | wc -l
+38
+```
+
+Lets now create a new pod called other by copying the old one and uncommenting the nodeSelector part :
+```sh
+#copy
+cp vip.yaml other.yaml
+#sed to swap vip with other
+sed -i s/vip/other/g other.yaml
+#uncomment
+vim other.yaml
+#apply
+kubectl apply -f other.yaml
+pod/other created
+#check
+NAME                                              READY   STATUS    RESTARTS   AGE
+other                                             4/4     Running   0          56s
+vip                                               4/4     Running   0          7m30s
+# on the worker/DP machine we now have the pods: going from 38 to 42
+root@dp:~# crictl ps | wc -l
+42
+```
+
+Clean everything
+```sh
+kubectl delete pod vip other
+pod "vip" deleted
+pod "other" deleted
+```
+
+# Using Taints to Control Pod Deployment
+
+Use taints to control where Pods run. Taints can limit or prevent Pods from running on certain nodes. We'll use three taints to manage Pod placement.
+
+first we create following deployement:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taint-deployment
+spec:
+  replicas: 8
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.20.1
+        ports:
+        - containerPort: 80
+```
+After we create it we check deployment and pod :
+```sh
+#create
+kubectl apply -f taint.yaml
+deployment.apps/taint-deployment created
+#get deploy and wait for all replicas to deploy
+kubectl get deployments.apps
+NAME                              READY   UP-TO-DATE   AVAILABLE   AGE
+taint-deployment                  4/8     8            4           9s
+#get pod owide
+kubectl get pod -o wide
+NAME                                              READY   STATUS    RESTARTS   AGE     IP              NODE   NOMINATED NODE   READINESS GATES
+taint-deployment-787bd7bfb4-7sw4l                 1/1     Running   0          5m      192.168.1.191   dp     <none>           <none>
+taint-deployment-787bd7bfb4-blmc6                 1/1     Running   0          5m      192.168.0.103   cp     <none>           <none>
+taint-deployment-787bd7bfb4-cv99d                 1/1     Running   0          5m      192.168.1.149   dp     <none>           <none>
+taint-deployment-787bd7bfb4-hlmdl                 1/1     Running   0          5m      192.168.0.200   cp     <none>           <none>
+taint-deployment-787bd7bfb4-nrdk9                 1/1     Running   0          5m      192.168.1.91    dp     <none>           <none>
+taint-deployment-787bd7bfb4-qwxjz                 1/1     Running   0          5m      192.168.1.123   dp     <none>           <none>
+taint-deployment-787bd7bfb4-r54hg                 1/1     Running   0          5m      192.168.0.212   cp     <none>           <none>
+taint-deployment-787bd7bfb4-rgjp4                 1/1     Running   0          5m      192.168.0.50    cp     <none>           <none>
+#inside cp we crictl :
+crictl ps | grep -e nginx -e IMAGE
+CONTAINER           IMAGE               CREATED             STATE               NAME                      ATTEMPT             POD ID              POD
+3b4476abd0a4c       c8d03f6b8b915       7 minutes ago       Running             nginx                     0                   d6c43c01d2a8e       taint-deployment-787bd7bfb4-r54hg
+a4e44c27c124e       c8d03f6b8b915       7 minutes ago       Running             nginx                     0                   fab51c1610e2e       taint-deployment-787bd7bfb4-blmc6
+8dbe02c314d99       c8d03f6b8b915       7 minutes ago       Running             nginx                     0                   3eab204217a1e       taint-deployment-787bd7bfb4-hlmdl
+d61713cd927e7       c8d03f6b8b915       7 minutes ago       Running             nginx                     0                   9a5e21f010de8       taint-deployment-787bd7bfb4-rgjp4
+08feca0eb98de       6d3c4dc55e9d2       2 days ago          Running             nginx                     0                   ee41586606f4c       nginx-gateway-96f76cdcf-tlgmc
+8bd5d261da549       8c4cd00e239ee       2 days ago          Running             nginx-gateway             0                   ee41586606f4c       nginx-gateway-96f76cdcf-tlgmc
+2d693a4b30c7e       78e25eaa557d4       2 days ago          Running             controller                0                   8eba0d0087211       myingress-ingress-nginx-controller-mt2dt
+6ebdffc27c291       f941e69465d6c       2 days ago          Running             linkerd-proxy             0                   8eba0d0087211       myingress-ingress-nginx-controller-mt2dt
+498c7597339b0       a830707172e80       3 days ago          Running             nginx                     0                   3cccc66ef5bfa       web-two-64558f4b75-qfzq8
+64e153def1539       a830707172e80       3 days ago          Running             nginx                     0                   4263cd8a9aa45       web-one-8d48dcf57-dm2rr
+#get wc -l in the CP
+crictl ps | wc -l
+26
+#on the DP/worker
+crictl ps | wc -l
+38
+```
+We'll use taints to control where new containers are deployed. NoSchedule and PreferNoSchedule affect only new containers, while NoExecute also evicts running ones. Taint the secondary node with a key like "bubba", verify the taint, then redeploy to see the effect.
+We delete, add taint and try again
+
+```sh
+#First we taint the node
+kubectl taint node dp bubba=value:PreferNoSchedule
+node/dp tainted
+#check
+kubectl describe node dp | grep -A5 Taint
+Taints:             bubba=value:PreferNoSchedule
+Unschedulable:      false
+Lease:
+  HolderIdentity:  dp
+  AcquireTime:     <unset>
+  RenewTime:       Fri, 02 May 2025 22:44:12 +0000
+#we create pods again using our deploy
+kubectl apply -f taint.yaml
+deployment.apps/taint-deployment created
+#check if deploy completed
+kubectl get deployments.apps taint-deployment
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE
+taint-deployment   8/8     8            8           17s
+#all pod runing in CP now
+kubectl get pod -o wide | grep taint
+taint-deployment-787bd7bfb4-2wccj                 1/1     Running   0          35s     192.168.0.145   cp     <none>           <none>
+taint-deployment-787bd7bfb4-frnvx                 1/1     Running   0          35s     192.168.0.240   cp     <none>           <none>
+taint-deployment-787bd7bfb4-jpz7b                 1/1     Running   0          35s     192.168.0.188   cp     <none>           <none>
+taint-deployment-787bd7bfb4-jssrc                 1/1     Running   0          35s     192.168.0.215   cp     <none>           <none>
+taint-deployment-787bd7bfb4-kr2h4                 1/1     Running   0          35s     192.168.0.1     cp     <none>           <none>
+taint-deployment-787bd7bfb4-n45zs                 1/1     Running   0          35s     192.168.0.121   cp     <none>           <none>
+taint-deployment-787bd7bfb4-phff7                 1/1     Running   0          35s     192.168.0.175   cp     <none>           <none>
+taint-deployment-787bd7bfb4-tznkf                 1/1     Running   0          35s     192.168.0.165   cp     <none>           <none>
+#on CP went from 22 to 30:
+root@cp ~ # crictl ps | wc -l
+30
+#on worker stayed 34:
+root@dp:~# crictl ps | wc -l
+34
+```
+
+Lets delete the deployment taint and other, then untaint the node
+```sh
+kubectl taint node dp bubba-
+node/dp untainted
+kubectl describe nodes | grep Taint
+Taints:             <none>
+Taints:             <none>
+```
+
+Now we taint with NoSchedule
+```sh
+#Tainting
+kubectl taint node dp bubba=value:NoSchedule
+node/dp tainted
+#The we create our deployement again and check node placement
+kubectl apply -f taint.yaml
+deployment.apps/taint-deployment created
+#placement
+#on CP from 22 to 30 +8
+root@cp ~ # crictl ps | wc -l
+30
+#on Worker, as you can see , working didnt change from 34
+root@dp:~# crictl ps | wc -l
+34
+```
+Lets now try with NoExecute
+```sh
+#first delete the deployement and untaint
+kubectl delete -f taint.yaml
+deployment.apps "taint-deployment" deleted
+#check the images
+root@cp ~ # crictl ps | wc -l
+22
+#delete the taint
+root@cp ~ # kubectl taint node dp bubba-
+node/dp untainted
+#deploy again pod and then we taint to check if they get evicted
+kubectl create -f taint.yaml
+deployment.apps/taint-deployment created
+#now on CP we have 22 > 26 +4
+root@cp ~ # crictl ps | wc -l
+26
+#on DP we went from 34 to 38 +4
+root@dp:~# crictl ps | wc -l
+38
+#now lets taint and check again
+kubectl taint node dp bubba=value:NoExecute
+node/dp tainted
+#alsmot all pod went to CP:
+root@cp ~ # crictl ps | wc -l
+40
+#and in DP only important and Daemonset pod stayed
+root@dp:~# crictl ps | wc -l
+5
+#checking each node and his placement:
+kubectl get pod --all-namespaces -owide | grep -e NAME -e dp
+
+NAMESPACE       NAME                                              READY   STATUS    RESTARTS       AGE     IP              NODE     NOMINATED NODE   READINESS GATES
+kube-system     cilium-envoy-k2qdh                                1/1     Running   0              48d     10.2.0.3        dp       <none>           <none>
+kube-system     cilium-operator-5c7867ccd5-jghsj                  1/1     Running   0              42d     10.2.0.3        dp       <none>           <none>
+kube-system     cilium-xlngl                                      1/1     Running   0              48d     10.2.0.3        dp       <none>           <none>
+kube-system     kube-proxy-kv9ww                                  1/1     Running   0              43d     10.2.0.3        dp       <none>           <none>
+kubectl get pod --all-namespaces -owide | grep -e NAME -e cp
+
+NAMESPACE       NAME                                              READY   STATUS    RESTARTS       AGE     IP              NODE     NOMINATED NODE   READINESS GATES
+default         books-5bcf5ccfd7-7zwm7                            1/1     Running   0              5m10s   192.168.0.115   cp       <none>           <none>
+default         books-5bcf5ccfd7-bz8pq                            1/1     Running   0              2d      192.168.0.90    cp       <none>           <none>
+default         myingress-ingress-nginx-controller-mt2dt          2/2     Running   0              3d1h    192.168.0.19    cp       <none>           <none>
+default         nfs-subdir-external-provisioner-d4c865f58-4vf5f   1/1     Running   0              5m10s   192.168.0.107   cp       <none>           <none>
+default         nginx-5869d7778c-p79gx                            1/1     Running   0              5m8s    192.168.0.239   cp       <none>           <none>
+default         taint-deployment-787bd7bfb4-2ngcd                 1/1     Running   0              15m     192.168.0.253   cp       <none>           <none>
+default         taint-deployment-787bd7bfb4-77h89                 1/1     Running   0              5m11s   192.168.0.143   cp       <none>           <none>
+default         taint-deployment-787bd7bfb4-7jkfx                 1/1     Running   0              15m     192.168.0.60    cp       <none>           <none>
+default         taint-deployment-787bd7bfb4-fdlqp                 1/1     Running   0              5m9s    192.168.0.204   cp       <none>           <none>
+default         taint-deployment-787bd7bfb4-glkx5                 1/1     Running   0              15m     192.168.0.154   cp       <none>           <none>
+default         taint-deployment-787bd7bfb4-klrn2                 1/1     Running   0              5m9s    192.168.0.44    cp       <none>           <none>
+default         taint-deployment-787bd7bfb4-lvwm4                 1/1     Running   0              5m10s   192.168.0.231   cp       <none>           <none>
+default         taint-deployment-787bd7bfb4-r4sjj                 1/1     Running   0              15m     192.168.0.238   cp       <none>           <none>
+default         web-one-8d48dcf57-dm2rr                           1/1     Running   0              3d20h   192.168.0.26    cp       <none>           <none>
+default         web-two-64558f4b75-qfzq8                          1/1     Running   0              3d20h   192.168.0.185   cp       <none>           <none>
+kube-system     cilium-envoy-2xs9m                                1/1     Running   0              49d     10.2.0.2        cp       <none>           <none>
+kube-system     cilium-h9s45                                      1/1     Running   0              49d     10.2.0.2        cp       <none>           <none>
+kube-system     cilium-operator-5c7867ccd5-24jvr                  1/1     Running   2 (43d ago)    43d     10.2.0.2        cp       <none>           <none>
+kube-system     coredns-7c65d6cfc9-fpkpr                          1/1     Running   0              6d19h   192.168.0.102   cp       <none>           <none>
+kube-system     coredns-7c65d6cfc9-fxt75                          1/1     Running   0              6d19h   192.168.0.164   cp       <none>           <none>
+kube-system     etcd-cp                                           1/1     Running   1 (43d ago)    43d     10.2.0.2        cp       <none>           <none>
+kube-system     kube-apiserver-cp                                 1/1     Running   0              43d     10.2.0.2        cp       <none>           <none>
+kube-system     kube-controller-manager-cp                        1/1     Running   0              43d     10.2.0.2        cp       <none>           <none>
+kube-system     kube-proxy-hx2xw                                  1/1     Running   0              43d     10.2.0.2        cp       <none>           <none>
+kube-system     kube-scheduler-cp                                 1/1     Running   0              43d     10.2.0.2        cp       <none>           <none>
+linkerd-viz     metrics-api-86bff98cbc-qljxb                      1/1     Running   0              5m9s    192.168.0.205   cp       <none>           <none>
+linkerd-viz     prometheus-7ff979ffd9-5zkf6                       2/2     Running   0              5m10s   192.168.0.61    cp       <none>           <none>
+linkerd-viz     tap-5b55c9bb76-6c8r5                              2/2     Running   1 (4d1h ago)   4d1h    192.168.0.46    cp       <none>           <none>
+linkerd-viz     tap-injector-f67944698-mbbmh                      1/1     Running   0              5m9s    192.168.0.192   cp       <none>           <none>
+linkerd-viz     web-755b796446-jvpjn                              2/2     Running   0              4d      192.168.0.32    cp       <none>           <none>
+linkerd         linkerd-destination-5477b7b488-vhjrt              4/4     Running   0              5m10s   192.168.0.252   cp       <none>           <none>
+linkerd         linkerd-identity-868c8bbdc4-msk6c                 2/2     Running   0              5m9s    192.168.0.96    cp       <none>           <none>
+linkerd         linkerd-proxy-injector-9d4bbf576-9fpc8            2/2     Running   0              5m10s   192.168.0.41    cp       <none>           <none>
+nginx-gateway   nginx-gateway-96f76cdcf-tlgmc                     2/2     Running   0              2d12h   192.168.0.29    cp       <none>           <none>
+
+#Lets now untaint and check if all container returned
+kubectl taint node dp bubba-
+node/dp untainted
+#on CP
+root@cp ~ # crictl ps | wc -l
+45
+#on DP , we see that not all container got back
+root@dp:~# crictl ps | wc -l
+13
