@@ -9563,5 +9563,5 @@ You can also set `terminationMessagePolicy`:
 
 ## Trouble Shooting Summary Image
 
-![troubleshooting_k8s.png](troubleshooting k8s.png)
+![troubleshooting_k8s.png](troubleshooting_k8s.png)
 
