@@ -9561,3 +9561,7 @@ You can also set `terminationMessagePolicy`:
 - `"FallbackToLogsOnError"`: Use last 2048 bytes or 80 lines of logs if the file is empty and the container failed.
 
 
+## Trouble Shooting Summary Image
+
+![troubleshooting_k8s.png](troubleshooting k8s.png)
+
