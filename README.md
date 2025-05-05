@@ -8140,3 +8140,1424 @@ root@cp ~ # crictl ps | wc -l
 #on DP , we see that not all container got back
 root@dp:~# crictl ps | wc -l
 13
+```
+
+# LOGGING and TROUBLESHOOTING
+
+## OverView
+
+Kubernetes clusters rely on API communication and are particularly affected by network issues. When troubleshooting, use standard Linux tools and procedures. If the affected Pod lacks a shell (like `bash`), deploy a similar Pod with a shell, such as `busybox`. Begin by examining DNS configuration files and using utilities like `dig`. For deeper analysis, you might need to install tools like `tcpdump`.
+
+Monitoring is essential for managing large workloads. It involves collecting key metrics—CPU, memory, disk, and network usage—on nodes and applications. Kubernetes provides this via the Metrics Server, which exposes a standard API (e.g., `/apis/metrics.k8s.io/`) for use by components like autoscalers.
+
+Centralized logging across all nodes is not built into Kubernetes by default. Tools like Fluentd can aggregate logs into a unified logging layer, making it easier to visualize and search for issues—especially when network troubleshooting does not reveal the root cause. Fluentd can be downloaded from its official website.
+
+For a comprehensive solution that combines logging, monitoring, and alerting, consider Prometheus, a CNCF project. Prometheus provides a time-series database and integrates with Grafana for visualization and dashboards.
+
+## Basic Troubleshooting Steps
+
+When troubleshooting Kubernetes issues, start with the most obvious causes and proceed methodically. Follow these steps to efficiently diagnose and resolve problems:
+
+1. **Check Command Line Errors**  
+    Investigate any errors returned by CLI tools such as `kubectl`. These often provide direct clues about the root cause.
+
+2. **Inspect Pod State and Logs**  
+    - Deploy a test Pod if needed:
+      ```sh
+      kubectl create deploy busybox --image=busybox -- sleep 3600
+      ```
+    - Access the Pod shell for interactive troubleshooting:
+      ```sh
+      kubectl exec -ti <busybox_pod> -- /bin/sh
+      ```
+    - View container logs:
+      ```sh
+      kubectl logs <pod-name>
+      ```
+    If logs are missing, consider adding a sidecar container for enhanced logging capabilities.
+
+3. **Verify Networking and DNS**  
+    Use standard Linux tools within the Pod shell to check DNS resolution, firewall rules, and general connectivity.
+
+
+ **DNS Resolution**
+
+| Tool       | Example Command                            | Description                            |
+|------------|---------------------------------------------|----------------------------------------|
+| `nslookup` | `nslookup kubernetes.default`               | Simple DNS query tool                  |
+| `dig`      | `dig kubernetes.default.svc.cluster.local`  | Detailed DNS lookups                   |
+| `getent`   | `getent hosts kubernetes.default`           | Uses system's name service resolution  |
+| `host`     | `host google.com`                           | DNS lookup tool                        |
+
+---
+
+**Network Connectivity**
+
+| Tool       | Example Command                     | Description                               |
+|------------|--------------------------------------|-------------------------------------------|
+| `ping`     | `ping 8.8.8.8`                       | Check basic reachability                  |
+| `curl`     | `curl http://service-name:port`      | HTTP(S) requests to endpoints             |
+| `wget`     | `wget http://example.com`            | HTTP requests (alternative to curl)       |
+| `telnet`   | `telnet service-name 80`             | Check if a TCP port is reachable          |
+| `nc`       | `nc -zv service-name 80`             | Netcat: check for open ports              |
+| `traceroute` | `traceroute 8.8.8.8`               | Trace route to a remote IP                |
+| `ip`       | `ip a`, `ip r`, `ip link`            | Check IP addresses, routes, interfaces    |
+| `ss`       | `ss -lntp`                           | List listening sockets and connections    |
+
+---
+
+**Firewall & Network Policy Inspection**
+
+| Tool       | Example Command                 | Description                               |
+|------------|----------------------------------|-------------------------------------------|
+| `iptables` | `iptables -L -n -v`              | View firewall rules (if available)        |
+| `nft`      | `nft list ruleset`               | View nftables rules (modern alternative)  |
+
+> ⚠️ **Note**: Most containers don't include `iptables` or `nft`. Firewall rules usually reside on the **host**, not inside Pods.
+
+---
+
+**Recommended Debug Image**
+
+For full tooling, run a debug container like this:
+
+```bash
+kubectl run -it --rm debug --image=nicolaka/netshoot -- bash
+```
+
+4. **Review Security Settings**  
+    - Ensure RBAC permissions are correctly configured.
+    - Check SELinux and AppArmor profiles, especially for network-centric applications.
+
+5. **Enable Auditing**  
+    Kubernetes supports auditing on the kube-apiserver, providing visibility into API actions after requests are accepted.
+
+6. **Check Node Health and Resources**  
+    - Review node logs for errors.
+    - Confirm sufficient CPU, memory, and disk resources are available.
+
+7. **Investigate Control Plane and Inter-Node Issues**  
+    - Examine logs for control plane components.
+    - Look for Pods stuck in pending or error states.
+    - Check for inter-node network issues, DNS problems, and firewall misconfigurations.
+
+### Summary Checklist
+
+- [ ] Errors from the command line
+- [ ] Pod logs and state
+- [ ] Pod shell access for DNS/network troubleshooting
+- [ ] Node logs and resource allocation
+- [ ] Security settings (RBAC, SELinux, AppArmor)
+- [ ] API calls and auditing
+- [ ] Inter-node networking, DNS, and firewall
+- [ ] Control plane server/controller health
+
+By following this structured approach, you can systematically identify and resolve issues in your Kubernetes environment.
+
+## Ephemeral Containers
+
+Introduced in Kubernetes 1.16, ephemeral containers allow you to add a temporary container to a running pod without restarting or recreating it. This is especially useful for debugging intermittent or hard-to-reproduce issues, as you can inject troubleshooting tools directly into the live environment.
+
+Ephemeral containers are currently an alpha feature, They have some limitations: they are not restarted automatically if they exit, and they cannot request ports or certain resources.
+
+Unlike regular containers, ephemeral containers are added through the `ephemeralcontainers` API endpoint, not by editing the pod specification. Therefore, you cannot use `kubectl edit` to add them.
+
+For debugging, you might use `kubectl attach` to connect to an existing process in a container, which can be preferable to `kubectl exec` if you want to avoid starting a new process. The effectiveness of this depends on the process you attach to.
+
+To add an ephemeral container and attach to it, you can use:
+
+```sh
+kubectl debug buggypod --image=debian --attach
+```
+
+## Cluster Startup Sequence
+
+When using **kubeadm** to build your cluster, the startup process is managed by **systemd**. To check the status and configuration of the kubelet service, run:
+
+```sh
+systemctl status kubelet.service
+```
+
+The kubelet service uses the configuration file:
+
+- `/etc/systemd/system/kubelet.service.d/10-kubeadm.conf`
+
+Within the kubelet's main configuration file (`/var/lib/kubelet/config.yaml`), you'll find several important settings. One key setting is `staticPodPath`, which specifies the directory where kubelet looks for static pod manifests:
+
+- `staticPodPath: /etc/kubernetes/manifests/`
+
+Any YAML file placed in this directory will be automatically started as a static pod by the kubelet, bypassing the scheduler. This is useful for troubleshooting or ensuring critical components always run.
+
+By default, the following static pod manifests are present, and kubelet will create these core cluster components:
+
+- `kube-apiserver`
+- `etcd`
+- `kube-controller-manager`
+- `kube-scheduler`
+
+Once these base pods are running, the **kube-controller-manager** uses etcd data to launch the remaining configured objects and controllers, completing the cluster initialization.
+
+## Monitoring
+
+Monitoring involves collecting metrics from both infrastructure and applications to ensure system health and performance.
+
+The deprecated Heapster has been replaced by the integrated Metrics Server in Kubernetes. Once installed and configured, the Metrics Server exposes a standard API that agents and tools can use to access resource usage data. It also supports custom metrics, enabling autoscalers to make informed scaling decisions based on application-specific data.
+
+Prometheus, a Cloud Native Computing Foundation (CNCF) project, is widely used for monitoring Kubernetes clusters. It scrapes resource usage metrics from Kubernetes objects cluster-wide and provides client libraries for instrumenting application code to collect detailed application-level metrics.
+
+Other CNCF projects enhance observability in distributed systems. OpenTelemetry enables developers to add instrumentation to their code, while Jaeger is used for tracing and analyzing telemetry data. Kubernetes also offers an alpha feature called API Server Tracing, which leverages OpenTelemetry for deeper insights. For more information, refer to the Kubernetes documentation.
+
+## Using krew
+
+Throughout this course, we've used the `kubectl` command to interact with Kubernetes. While the basic commands are powerful, you can extend `kubectl`'s functionality even further by using plugins to help you manage Kubernetes objects and components more efficiently.
+
+> **Note:**  
+> At the time of writing, plugins cannot overwrite existing `kubectl` commands or add sub-commands to them.
+
+When using a plugin, options such as `--namespace` or `--container` must come **after** the plugin command. For example:
+
+```sh
+kubectl sniff bigpod-abcd-123 -c mainapp -n accounting
+```
+
+Plugins can be distributed in various ways. The recommended approach is to use **krew**, the `kubectl` plugin manager. Krew provides cross-platform packaging and a curated plugin index, making it easy to discover and install new plugins.
+
+To install krew, follow the instructions in the [krew GitHub repository](https://github.com/kubernetes-sigs/krew/):
+
+First run the following script:
+```sh
+(
+  set -x; cd "$(mktemp -d)" &&
+  OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
+  ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" &&
+  KREW="krew-${OS}_${ARCH}" &&
+  curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" &&
+  tar zxvf "${KREW}.tar.gz" &&
+  ./"${KREW}" install krew
+)
+#add to PATH
+export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
+echo "export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"" >> $HOME/.bashrc
+#test
+kubectl krew
+krew is the kubectl plugin manager.
+You can invoke krew through kubectl: "kubectl krew [command]..."
+
+Usage:
+  kubectl krew [command]
+
+Available Commands:
+  help        Help about any command
+  index       Manage custom plugin indexes
+...
+#Update the local copy of the plugin index
+kubectl krew update
+#Lets install some plugin
+kubectl krew install ns
+kubectl krew install tree
+kubectl krew install get-all
+#to use a plugin:
+#example of tree:
+kubectl tree deploy web-one
+NAMESPACE  NAME                                          READY  REASON  AGE
+default    Deployment/web-one                            -              4d
+default    └─ReplicaSet/web-one-8d48dcf57                -              4d
+default      └─Pod/web-one-8d48dcf57-dm2rr               True           4d
+default        └─CiliumEndpoint/web-one-8d48dcf57-dm2rr  -              4d
+#example of get-all:
+kubectl get-all
+W0503 14:26:43.699538 1774996 warnings.go:70] v1 ComponentStatus is deprecated in v1.19+
+NAME                                                                                                        NAMESPACE        AGE
+componentstatus/scheduler                                                                                                    <unknown>
+componentstatus/controller-manager                                                                                           <unknown>
+componentstatus/etcd-0                                                                                                       <unknown>
+configmap/kube-root-ca.crt                                                                                  accounting       8d
+configmap/colors                                                                                            default          11d
+configmap/fast-car                                                                                          default          11d
+...
+#to upgrade
+kubectl krew upgrade
+#to uninstall
+kubectl krew uninstall access-matrix
+#acess help
+kubectl krew help
+#to see all installed plugins
+kubectl plugin list
+The following compatible plugins are available:
+
+/root/.krew/bin/kubectl-get_all
+/root/.krew/bin/kubectl-krew
+/root/.krew/bin/kubectl-ns
+/root/.krew/bin/kubectl-tree
+```
+
+## Sniffing traffic
+
+When troubleshooting network issues in a Kubernetes cluster, keep in mind that most cluster network traffic is encrypted. This can make diagnosing problems more challenging. The `sniff` plugin helps by allowing you to capture and analyze traffic directly from within a pod. To use this tool, you'll need to have Wireshark installed and be able to export graphical displays.
+
+By default, the `sniff` command attaches to the first container it finds in the specified pod. If you want to target a specific container, use the `-c` option.
+First we install sniff
+
+Lets **install sniff**
+```sh 
+kubectl krew install sniff
+Updated the local copy of plugin index.
+Installing plugin: sniff
+Installed plugin: sniff
+\
+ | Use this plugin:
+ |      kubectl sniff
+ | Documentation:
+ |      https://github.com/eldadru/ksniff
+ | Caveats:
+ | \
+ |  | This plugin needs the following programs:
+ |  | * wireshark (optional, used for live capture)
+ | /
+/
+WARNING: You installed plugin "sniff" from the krew-index plugin repository.
+   These plugins are not audited for security by the Krew maintainers.
+   Run them at your own risk.
+```
+
+Then we **install Wireshark**
+```sh
+apt install wireshark -y
+```
+
+We need a pod with tcpdump:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netshoot
+  labels:
+    app: netshoot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: netshoot
+  template:
+    metadata:
+      labels:
+        app: netshoot
+    spec:
+      containers:
+      - name: netshoot
+        image: nicolaka/netshoot:latest
+        imagePullPolicy: Always
+        command:
+          - "sleep"
+          - "3600"  # Keep the pod alive for 1 hour (change as needed)
+```
+#then we run this:
+```yaml
+kubectl sniff netshoot-64576c6b7d-996gm -c netshoot -n default
+INFO[0000] using tcpdump path at: '/root/.krew/store/sniff/v1.6.2/static-tcpdump'
+INFO[0000] sniffing method: upload static tcpdump
+INFO[0000] sniffing on pod: 'netshoot-64576c6b7d-996gm' [namespace: 'default', container: 'netshoot', filter: '', interface: 'any']
+INFO[0000] uploading static tcpdump binary from: '/root/.krew/store/sniff/v1.6.2/static-tcpdump' to: '/tmp/static-tcpdump'
+INFO[0000] uploading file: '/root/.krew/store/sniff/v1.6.2/static-tcpdump' to '/tmp/static-tcpdump' on container: 'netshoot'
+INFO[0000] executing command: '[/bin/sh -c test -f /tmp/static-tcpdump]' on container: 'netshoot', pod: 'netshoot-64576c6b7d-996gm', namespace: 'default'
+INFO[0000] command: '[/bin/sh -c test -f /tmp/static-tcpdump]' executing successfully exitCode: '0', stdErr :''
+INFO[0000] file found: ''
+INFO[0000] file was already found on remote pod
+INFO[0000] tcpdump uploaded successfully
+INFO[0000] spawning wireshark!
+INFO[0000] start sniffing on remote container
+INFO[0000] executing command: '[/tmp/static-tcpdump -i any -U -w - ]' on container: 'netshoot', pod: 'netshoot-64576c6b7d-996gm', namespace: 'default'
+INFO[0000] starting sniffer cleanup
+INFO[0000] sniffer cleanup completed successfully
+Error: signal: aborted (core dumped)
+```
+
+>> WE NEED TO CHECK LATER WHY NOT WORKING
+
+## Logging Tools
+
+Logging is a crucial aspect of IT operations, closely related to monitoring. There are numerous tools available to help you collect, aggregate, and analyze logs effectively.
+
+A typical logging workflow involves collecting logs locally, aggregating them, and then ingesting them into a search engine. These logs are then visualized through dashboards that support advanced search syntax. Among the various logging solutions, the **Elasticsearch, Logstash, and Kibana (ELK) Stack** is widely adopted.
+
+In Kubernetes environments:
+
+- The **kubelet** writes container logs to local files using the Docker logging driver.
+- You can retrieve these logs using the `kubectl logs` command.
+
+**Logging Node Level**
+
+Container runtimes manage application logs, standardizing them via the CRI logging format for kubelet integration. By default, logs from one terminated container are kept after a restart, but all logs are removed if a pod is evicted. Access logs using `kubectl logs`.
+
+![logging-node-level.png](logging-node-level.png)
+
+**Cluster-Level logging architectures**
+
+- Using a node logging agent
+
+Use a node-level logging agent (often as a DaemonSet) on each node to collect and forward container logs. This approach requires no changes to applications and aggregates logs from stdout and stderr for all containers on the node.
+
+![logging-with-node-agent.png](logging-with-node-agent.png)
+
+**Using a sidecar container with the logging agent**
+
+- Streaming sidecar container
+
+Sidecar containers should write logs to their own stdout and stderr. This lets kubelet and logging agents collect logs easily, even if your app doesn't support stdout/stderr. Redirecting logs is simple and enables tools like `kubectl logs` to work. 
+
+![logging-with-streaming-sidecar.png](logging-with-streaming-sidecar.png)
+
+- Sidecar container with a logging agent
+
+If the node-level logging agent isn't flexible enough, use a sidecar container with a custom logging agent for your app.
+
+Note:
+Sidecar logging agents can consume more resources and their logs aren't accessible via kubectl logs.
+
+![logging-with-sidecar-agent.png](logging-with-sidecar-agent.png)
+
+- Exposing logs directly from the application
+
+Cluster-logging that exposes or pushes logs directly from every application is outside the scope of Kubernetes
+
+![logging-from-application.png](logging-from-application.png)
+
+For cluster-wide log aggregation, **Fluentd** is a popular choice. Fluentd is part of the [Cloud Native Computing Foundation (CNCF)](https://www.cncf.io/), and it pairs well with [Prometheus](https://prometheus.io/) for comprehensive monitoring and logging.
+
+
+### Fluentd in Kubernetes
+
+Setting up Fluentd for Kubernetes logging is an excellent way to learn about **DaemonSets**. Fluentd agents are deployed on each node via a DaemonSet, aggregate logs from all containers, and forward them to an Elasticsearch instance. These logs can then be visualized using a Kibana dashboard.
+
+```mermaid
+graph LR
+    A[Container Logs] --> B[Fluentd DaemonSet]
+    B --> C[Elasticsearch]
+    C --> D[Kibana Dashboard]
+```
+
+## TroubleShooting
+
+### Cluster
+
+- **List Nodes**: Check if all nodes are registered and in the `Ready` state.
+
+```sh
+#check if ready
+kubectl get nodes
+```
+
+- **Cluster Info Dump**: Collect detailed cluster information
+
+```sh
+#dump cluster info
+#full dump that you can direct into a file
+kubectl cluster-info dump > output_dump
+#grep on errors
+kubectl cluster-info dump | grep -i "error"
+#grep on kubelet
+kubectl cluster-info dump | grep -A 5 "kubelet"
+#focus only on kube-system
+kubectl cluster-info dump --namespaces=kube-system
+#dump on dir
+kubectl cluster-info dump --output-directory=dump
+root@cp ~ # tree dump/
+dump/
+├── default
+│   ├── books-5bcf5ccfd7-7zwm7
+│   │   └── logs.txt
+│   ├── books-5bcf5ccfd7-bz8pq
+│   │   └── logs.txt
+│   ├── daemonsets.json
+....
+├── kube-system
+│   ├── cilium-envoy-2xs9m
+│   │   └── logs.txt
+│   ├── cilium-envoy-k2qdh
+│   │   └── logs.txt
+│   ├── cilium-h9s45
+│   │   └── logs.txt
+│   ├── cilium-operator-5c7867ccd5-24jvr
+│   │   └── logs.txt
+....
+```
+
+- **investigate node issues**: (NotReady status or unreachable nodes), use `kubectl describe node` or `kubectl get node -o yaml` for details. Look for NotReady events and note that pods are evicted after five minutes of NotReady status.
+
+```sh
+#look for events
+kubectl describe node kube-worker-1
+#get node info
+kubectl get node kube-worker-1 -o yaml
+```
+
+#### Logs
+
+##### Control Plane Logs
+- `/var/log/kube-apiserver.log` — API Server logs
+- `/var/log/kube-scheduler.log` — Scheduler logs
+- `/var/log/kube-controller-manager.log` — Controller Manager logs
+
+##### Worker Node Logs
+- `/var/log/kubelet.log` — Kubelet logs
+- `/var/log/kube-proxy.log` — Kube-proxy logs
+
+#### Common Issues
+
+- **Node Not Ready:**  
+    Use `kubectl describe node` to check events and conditions.
+
+- **Pod Scheduling Issues:**  
+    Verify node taints, tolerations, and resource availability.
+
+
+#### Useful Tools
+
+- **Node Problem Detector:** Monitors node health.
+- **crictl:** Debugs container runtime issues.
+- **kubectl debug:** Enables interactive node debugging.
+
+#### Kubelet Service
+```sh
+#get kubelet status
+sudo systemctl status kubelet
+#get kubelet logs
+sudo journalctl -u kubelet -xe
+#restart kubelet
+sudo systemctl restart kubelet
+```
+
+#### ContainerD Service
+```sh
+#get containerD status
+sudo systemctl status containerd
+# or for Docker:
+sudo systemctl status docker
+#check logs
+sudo journalctl -u containerd -xe
+```
+
+#### Check node memory and CPU and logs
+```sh
+df -h        # Disk usage
+free -m      # Memory usage
+top or htop  # CPU load
+dmesg   #View kernel ring buffer messages(Hardware,Driver,KernelPanic,IO,OOM,Boot)
+sudo journalctl -xe #node logs
+```
+
+#### Check Network and DNS
+```sh
+ping 8.8.8.8
+ping <control-plane-ip>
+nslookup kubernetes.default
+```
+
+#### Drain node restart it and join again
+```sh
+#cordon node
+kubectl cordon <node-name>
+#drain it
+kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
+#uncordon and let it join again
+kubectl uncordon <node-name>
+```
+
+
+#### Mitigations
+
+##### 1. Automatic VM Restart
+
+- **Action:** Use the IaaS provider's automatic VM restarting feature for IaaS VMs.
+    - **Mitigates:** 
+        - Apiserver VM shutdown or crashing
+        - Supporting services VM shutdown or crashes
+
+##### 2. Reliable Storage
+
+- **Action:** Use IaaS provider's reliable storage (e.g., GCE PD or AWS EBS volume) for VMs running apiserver and etcd.
+    - **Mitigates:** 
+        - Apiserver backing storage loss
+
+##### 3. High-Availability Configuration
+
+- **Action:** Configure high-availability (HA) for control plane components.
+    - **Mitigates:** 
+        - Control plane node shutdown
+        - Control plane component (scheduler, API server, controller-manager) crashes
+        - API server backing storage (etcd data directory) loss (assumes HA etcd configuration)
+    - **Benefit:** Tolerates one or more simultaneous node or component failures.
+
+##### 4. Regular Snapshots
+
+- **Action:** Snapshot apiserver persistent disks (PDs) or EBS volumes periodically.
+    - **Mitigates:** 
+        - Apiserver backing storage loss
+        - Some cases of operator error
+        - Some Kubernetes software faults
+
+##### 5. Replication Controllers and Services
+
+- **Action:** Use replication controllers and services in front of pods.
+    - **Mitigates:** 
+        - Node shutdown
+        - Kubelet software faults
+
+##### 6. Resilient Application Design
+
+- **Action:** Design applications (containers) to tolerate unexpected restarts.
+    - **Mitigates:** 
+        - Node shutdown
+        - Kubelet software faults
+
+### Debug POD
+
+#### Key Commands
+- **Check Pod State**: View the current state and recent events of a Pod.
+  ```bash
+  kubectl describe pods <pod-name>
+  ```
+- **List Pods by Selector**: Verify Pods matching a specific label.
+  ```bash
+  kubectl get pods --selector=name=nginx,type=frontend
+  ```
+- **Validate Pod YAML**: Ensure your Pod configuration is correct.
+  ```bash
+  kubectl apply --validate -f mypod.yaml
+  ```
+- **Compare Pod YAML**: Compare the Pod on the apiserver with your local YAML.
+  ```bash
+  kubectl get pods/mypod -o yaml > mypod-on-apiserver.yaml
+  ```
+
+#### Common Pod Issues
+- **Pod Stuck in Pending**:
+  - Insufficient resources: Adjust resource requests or add nodes.
+  - `hostPort` conflicts: Avoid using `hostPort` unless necessary.
+- **Pod Stuck in Waiting**:
+  - Image pull issues: Verify image name, registry, and manual pull.
+- **Pod Stuck in Terminating**:
+  - Finalizer issues: Check for admission webhooks preventing deletion.
+- **Pod Crashing or Unhealthy**:
+  - Debug running Pods using logs and events.
+- **Pod Not Behaving as Expected**:
+  - Validate YAML and check for typos or incorrect nesting.
+
+#### Debugging Services
+- **Missing Endpoints**:
+  - `kubectl get endpointslices -l kubernetes.io/service-name=${SERVICE_NAME}`
+  - Verify Pods match the Service's label selector.
+  - Ensure `containerPort` matches the Service's `targetPort`.
+- **Network Traffic Not Forwarded**:
+  - Check kube-proxy and iptables rules.
+
+### Debugging Running Pods in Kubernetes
+
+#### Prerequisites
+- Ensure your Pod is already scheduled and running.(refer to the Debugging pod section.)
+- Have a shell inside the pods Node and be able to use `kubectl`
+
+#### Debugging first Steps
+
+##### 1. Fetch Pod Details
+Use `kubectl describe pod` to get detailed information about a Pod, including events and status.
+```bash
+kubectl describe pod <pod-name>
+```
+For YAML output with more metadata:
+```bash
+kubectl get pod <pod-name> -o yaml
+```
+
+- The container state is one of *Waiting*, *Running* or *Terminated*
+- Ready tells you if container passed its last readiness probe(if no readiness Prob configured, by default he is Ready)
+- Restart Count tells you number of restart, to detect crash loops in container with restart policy always
+- In log of recent event , "From Indicates the component logging the evens.
+
+**Pending Pods**
+
+Most common scenario is requesting more resources than free in node, describe the pod and check the events, then you can scale down or add node/resource to cluster, or tune in your pod.
+
+##### 2. Examine Pod Logs
+Check the logs of the affected container:
+```bash
+kubectl logs <pod-name> -c <container-name>
+```
+For previous container crash logs:
+```bash
+kubectl logs --previous <pod-name> -c <container-name>
+```
+
+##### 3. Events
+Get k8s event for default on namespace in contexte
+```bash
+kubectl get events
+```
+get specific namespace events
+```bash
+kubectl get events --namespace=my_namespace
+```
+
+##### 4. Debug with Container Exec
+Execute commands inside a running container:
+```bash
+kubectl exec -it <pod-name> -c <container-name> -- <command> <ARG1> <ARG2> ... <ARGN>
+```
+Example:
+```bash
+#check cassandra logs
+kubectl exec cassandra -- cat /var/log/cassandra/system.log
+#run a shell using -it
+kubectl exec -it cassandra -- sh
+```
+
+#### Debugging with ephemeral debug container (Stable)
+
+Ephemeral containers help troubleshoot when `kubectl exec` isn't enough, such as with crashed containers or minimal images lacking debugging tools (***Distroless*** minimal image with no package manager, shell or OS utilities).
+
+##### 1. Debugging Using ephemeral containers
+Lets create this pod, with pause image::
+```bash
+kubectl run ephemeral-demo --image=registry.k8s.io/pause:3.1 --restart=Never
+```
+
+We cannot exec this image:
+```bash
+kubectl exec -it ephemeral-demo -- sh
+OCI runtime exec failed: exec failed: container_linux.go:346: starting container process caused "exec: \"sh\": executable file not found in $PATH": unknown
+```
+
+Lets add a debugging container witgh -i (--interactive) to attach to the console of the Ephemeral storage
+```bash
+#This will add new busybox container and attach to it
+#--target param, targets the process namespaces of another container (check if the CRI support it)
+kubectl debug -it ephemeral-demo --image=busybox:1.28 --target=ephemeral-demo
+Defaulting debug container name to debugger-8xzrl.
+If you don't see a command prompt, try pressing enter.
+/ #
+```
+
+You can check the state of newly create ephemeral container using `kubectl describe`
+```yaml
+...
+Ephemeral Containers:
+  debugger-8xzrl:
+    Container ID:   docker://b888f9adfd15bd5739fefaa39e1df4dd3c617b9902082b1cfdc29c4028ffb2eb
+    Image:          busybox
+    Image ID:       docker-pullable://busybox@sha256:1828edd60c5efd34b2bf5dd3282ec0cc04d47b2ff9caa0b6d4f07a21d1c08084
+    Port:           <none>
+    Host Port:      <none>
+    State:          Running
+      Started:      Wed, 12 Feb 2020 14:25:42 +0100
+    Ready:          False
+    Restart Count:  0
+    Environment:    <none>
+    Mounts:         <none>
+...
+```
+---
+- **Share process namespace between containers inside pod**
+
+**Process namespace sharing** lets containers in a pod see each other's processes. Use it for sidecar containers (like log handlers) or debugging containers without built-in tools:
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+spec:
+  shareProcessNamespace: true #<=Shared Process Enabled
+  containers:
+  - name: nginx #<= First container: Nginx 
+    image: nginx
+  - name: shell #<= Second container: Shell
+    image: busybox:1.28
+    command: ["sleep", "3600"]
+    securityContext:
+      capabilities:
+        add:
+        - SYS_PTRACE
+    stdin: true
+    tty: true
+```
+Lets attach
+```bash
+#Create
+kubectl apply -f https://k8s.io/examples/pods/share-process-namespace.yaml
+kubectl exec -it nginx -c shell -- /bin/sh
+#Run this inside the "shell" container
+ps ax
+PID   USER     TIME  COMMAND
+    1 root      0:00 /pause
+    8 root      0:00 nginx: master process nginx -g daemon off;
+   14 101       0:00 nginx: worker process
+   15 root      0:00 sh
+   21 root      0:00 ps ax
+```
+inside `shell` container i can do action on `nginx` container process:
+```bash
+# run this inside the "shell" container
+kill -HUP 8   # change "8" to match the PID of the nginx leader process
+ps ax
+PID   USER     TIME  COMMAND
+    1 root      0:00 /pause
+    8 root      0:00 nginx: master process nginx -g daemon off;
+   15 root      0:00 sh
+   22 101       0:00 nginx: worker process #restarted
+   23 root      0:00 ps ax
+```
+```bash
+You can even access file system from `shell` container to nginx `container`
+# run this inside the "shell" container
+# change "8" to the PID of the Nginx process, if necessary
+head /proc/8/root/etc/nginx/nginx.conf
+
+```
+
+Pods can share a process namespace, but this has implications:
+
+- **PID 1 Issue:** Containers expecting PID 1 (like those using systemd) may not work as expected. In shared namespaces, `kill -HUP 1` signals the pod sandbox, not the container.
+- **Process Visibility:** All processes (and their details in `/proc`) are visible to containers in the pod, including sensitive info passed as arguments or environment variables.
+- **Filesystem Access:** Containers can access each other's filesystems via `/proc/$pid/root`, making secrets only as secure as filesystem permissions.
+
+---
+
+##### 2. Debugging Using a copy of the pod
+
+Troubleshooting Pods can be hard if the container lacks a shell or crashes on startup. In these cases, use `kubectl debug` to create a modified copy of the Pod for debugging.
+
+###### 2.1. Copying a Pod while adding a new container
+
+Add a new container to your Pod if you need extra troubleshooting tools not available in your current container image.
+
+We create a pod using `busybox`, but we need tools not included in `busybox`:
+```bash
+kubectl run myapp --image=busybox:1.28 --restart=Never -- sleep 1d
+```
+
+Lets create a copy of `myapp` named `myapp-debug` that add a ubuntu container:
+```bash
+kubectl debug myapp -it --image=ubuntu --share-processes --copy-to=myapp-debug
+Defaulting debug container name to debugger-w7xmf.
+If you don't see a command prompt, try pressing enter.
+root@myapp-debug:/#
+```
+
+- `kubectl debug` auto-generates a container name unless you use `--container`.
+- Use `-i` to attach to the new container (default). To avoid attaching, add `--attach=false`.
+- If disconnected, reattach with `kubectl attach`.
+- `--share-processes` lets containers in the Pod see each other's processes.
+
+###### 2.2. Copying a Pod while changing its command
+
+You may need to change a container's command, for example to debug or fix crashes.
+Lets simulate a crashing app using `kubectl run` that exit immediatly
+```bash
+kubectl run --image=busybox:1.28 myapp -- false
+#When using describe:
+kubectl describe pod myapp
+Containers:
+  myapp:
+    Image:         busybox
+    ...
+    Args:
+      false
+    State:          Waiting
+      Reason:       CrashLoopBackOff
+    Last State:     Terminated
+      Reason:       Error
+      Exit Code:    1
+```
+
+We can now use `kubectl debug`to create a copy of this pod with command change to interactive shell:
+```bash
+kubectl debug myapp -it --copy-to=myapp-debug --container=myapp -- sh
+If you don't see a command prompt, try pressing enter.
+/ #
+```
+
+- Use `--container <name>` with `kubectl debug` to change a specific container's command; otherwise, a new container is created.
+- The `-i` flag attaches to the container by default. Use `--attach=false` to prevent this. Reattach with `kubectl attach` if disconnected.
+
+###### 2.3. Copying a Pod while changing container images
+
+Sometimes you may need to swap a Pod's image for one with debugging tools.
+Lets create a pod using `kubectl run`:
+```bash
+kubectl run myapp --image=busybox:1.28 --restart=Never -- sleep 1d
+```
+Now using `kubectl debug` to make copy and change the container image to `ubuntu`
+```bash
+kubectl debug myapp --copy-to=myapp-debug --set-image=*=ubuntu
+```
+`--set-image` uses `container_name=image` syntax like `kubectl set image`. Use `*=ubuntu` to set all containers' images to Ubuntu.
+```sh
+kubectl set image deployment/myapp *=ubuntu
+```
+
+
+##### 3. Debugging via a shell on the node:
+
+If none of these approaches work, you can find the Node on which the Pod is running and create a Pod running on the Node. 
+Lets use `kubectl debug` to create an interactive on a Node
+```bash
+kubectl debug node/my_node -it --image=ubuntu
+
+Creating debugging pod node-debugger-mynode-pdx84 with container debugger on node mynode.
+If you don't see a command prompt, try pressing enter.
+root@ek8s:/#
+```
+
+- `kubectl debug` auto-generates the Pod name from the Node name.
+- The Node's root filesystem mounts at `/host`.
+- The container shares host IPC, network, and PID namespaces, but isn't privileged—some actions (like `chroot /host`) may fail.
+- For a privileged pod, create one manually or use `--profile=sysadmin`.
+
+##### 5. Debugging pode or node while applying profile
+
+Use `kubectl debug` to apply profiles when debugging nodes or Pods. Profiles set properties like `securityContext` for different scenarios. There are two profile types: **static** and **custom**.
+
+###### 5.1 applying a Static profile
+
+These are a set of predefined properties that we apply using `--profile` flag
+
+| Profile    | Description                                                              |
+|------------|-------------------------------------------------------------------------|
+| legacy     | A set of properties backwards compatibility with 1.22 behavior           |
+| general    | A reasonable set of generic properties for each debugging journey        |
+| baseline   | A set of properties compatible with PodSecurityStandard baseline policy  |
+| restricted | A set of properties compatible with PodSecurityStandard restricted policy|
+| netadmin   | A set of properties including Network Administrator privileges           |
+| sysadmin   | A set of properties including System Administrator (root) privileges     |
+
+> Note if you dont specify `--profile` the `legacy` will be used by defautl (This will depricated)
+
+Lets create a pod named `myapp`
+```bash
+kubectl run myapp --image=busybox:1.28 --restart=Never -- sleep 1d
+```
+Debug the Pod with an ephemeral container. For privileged access, use the `sysadmin` profile:
+```bash
+kubectl debug -it myapp --image=busybox:1.28 --target=myapp --profile=sysadmin
+Targeting container "myapp". If you don't see processes from this container it may be because the container runtime doesn't support this feature.
+Defaulting debug container name to debugger-6kg4x.
+If you don't see a command prompt, try pressing enter.
+/ #
+```
+Testing:
+```bash
+#check the capabilities of the ephemeral container process ($$) by running command:
+grep Cap /proc/$$/status
+...
+CapPrm:	000001ffffffffff
+CapEff:	000001ffffffffff
+...
+#We can also validate that eph-container was created as priviliged
+kubectl get pod myapp -o jsonpath='{.spec.ephemeralContainers[0].securityContext}'
+{"privileged":true}
+```
+
+###### 5.2 applying a Customer profile (stable)
+
+- You can use a custom profile (YAML or JSON) with the `--custom` flag to modify the container spec for debugging.  
+- You cannot change the container's name, image, command, lifecycle, or volumeDevices, nor the Pod spec.
+
+Lets create a pod
+```bash
+kubectl run myapp --image=busybox:1.28 --restart=Never -- sleep 1d
+```
+And create a customer yaml file
+```yaml
+env:
+- name: ENV_VAR_1
+  value: value_1
+- name: ENV_VAR_2
+  value: value_2
+securityContext:
+  capabilities:
+    add:
+    - NET_ADMIN
+    - SYS_TIME
+```
+
+Then run the debug with the customer profile
+```bash
+kubectl debug -it myapp --image=busybox:1.28 --target=myapp --profil=general --custom=custom-profile.yaml
+```
+check
+```bash
+kubectl get pod myapp -o jsonpath='{.spec.ephemeralContainers[0].env}'
+```
+```json
+[{"name":"ENV_VAR_1","value":"value_1"},{"name":"ENV_VAR_2","value":"value_2"}]
+```
+```bash
+kubectl get pod myapp -o jsonpath='{.spec.ephemeralContainers[0].securityContext}'
+```
+```json
+{"capabilities":{"add":["NET_ADMIN","SYS_TIME"]}}
+```
+
+### Debugging Kubernetes Services
+
+While Debugging services you should ask following question
+
+1. **Does the Service exist?**
+2. **Are there any Network Policy Ingress rules affecting the target Pods?**
+3. **Does the Service work by DNS name?**
+    - Does any Service work by DNS name?
+4. **Does the Service work by IP?**
+5. **Is the Service defined correctly?**
+6. **Does the Service have any EndpointSlices?**
+7. **Are the Pods working?**
+8. **Is the kube-proxy working?**
+    - Is kube-proxy running?
+    - Is kube-proxy proxying?
+    - *Edge case*: A Pod fails to reach itself via the Service IP.
+
+Most of the time to start debugging, you need to check what a Pod sees in the cluster by run an interactive busybox Pod:
+
+```bash
+kubectl run -it --rm --restart=Never busybox --image=registry.k8s.io/busybox -- sh
+```
+
+Lets considere we have the following Deployement runing image serve_hostname with 3 replicas:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: hostnames
+  name: hostnames
+spec:
+  selector:
+    matchLabels:
+      app: hostnames
+  replicas: 3  #3 replicas
+  template:
+    metadata:
+      labels:
+        app: hostnames
+    spec:
+      containers:
+      - name: hostnames
+        image: registry.k8s.io/serve_hostname #serve_hostname is a container that serves its hostname via HTTP on port 9376. For any  other app, use the port the  app Pods are listening on.
+```
+
+To confirm the pods are serving we can get the list of POD IP Addresses using :
+```bash
+kubectl get pods -l app=hostnames -o go-template='{{range .items}}{{.status.podIP}}{{"\n"}}{{end}}'
+
+10.244.0.5
+10.244.0.6
+10.244.0.7
+#pinging them -qO- quiet mode + output to stdout (-=> means stdout)
+#using the port of serve_hostname : 9376
+for ep in 10.244.0.5:9376 10.244.0.6:9376 10.244.0.7:9376; do
+    wget -qO- $ep
+done
+```
+
+#### 1. Does the Service exit ?
+
+Most of the time the service does not exist, check that with a get:
+```bash
+kubectl get svc hostnames
+No resources found.
+Error from server (NotFound): services "hostnames" not found
+```
+You need to expose it
+```bash
+#--port on service, --target-port on pod
+kubectl expose deployment hostnames --port=80 --target-port=9376
+service/hostnames exposed
+```
+
+Read it back
+```bash
+kubectl get svc hostnames
+NAME        TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+hostnames   ClusterIP   10.0.1.175   <none>        80/TCP    5s
+```
+
+#### 2. Any Network Policy Ingress rules affecting the pods ?
+
+Check the network policies :
+```bash
+kubectl get networkpolicies --all-namespaces
+kubectl get netpol -A #short
+```
+
+#### 3. Does the Service work by DNS Name?
+
+Exec pod in the same namespace:
+```bash
+nslookup hostnames
+Address 1: 10.0.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      hostnames
+Address 1: 10.0.1.175 hostnames.default.svc.cluster.local
+```
+
+if previous fail :
+```bash
+#.default = namespace, to replace if needed
+nslookup hostnames.default
+```
+
+if previous fail, try fully-qualified name:
+```bash
+nslookup hostnames.default.svc.cluster.local
+```
+
+You can also from the a node in the cluster
+```bash
+#k8s dns server : 10.0.0.10
+nslookup hostnames.default.svc.cluster.local 10.0.0.10
+
+Server:         10.0.0.10
+Address:        10.0.0.10#53
+
+Name:   hostnames.default.svc.cluster.local
+Address: 10.0.1.175
+```
+
+if only fully-qualified name work but not relative one, check your:
+
+```bash
+cat /etc/resolv.conf
+```
+
+Should be something like:
+```bash
+nameserver 10.0.0.10
+search default.svc.cluster.local svc.cluster.local cluster.local example.com
+options ndots:5
+```
+- **The `nameserver`** line should point to your cluster's DNS service (set with `--cluster-dns`). 
+- **The `search`** line must include the correct suffixes to resolve service names, typically ending with `cluster.local` (set with `--cluster-domain`). Adjust these if your cluster uses different settings. 
+- The **`options` line** should set `ndots` to at least 5 so DNS search paths work as expected.
+
+#### 4. Does any Service work by DNS Name ?
+
+If all previous fail, check the k8s Master Service from within a Pod:
+```bash
+nslookup kubernetes.default
+
+Server:    10.0.0.10
+Address 1: 10.0.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      kubernetes.default
+Address 1: 10.0.0.1 kubernetes.default.svc.cluster.local
+```
+> if this fail also , there is an issue with kube-proxy
+
+#### 5. Does the service work by IP ?
+
+If DNS works, lets check IP, from a pod within the cluster, access service IP from `kubectl get`
+```bash
+for i in $(seq 1 3); do 
+    wget -qO- 10.0.1.175:80
+done
+
+hostnames-632524106-bbpiw
+hostnames-632524106-ly40y
+hostnames-632524106-tlaok
+```
+
+Check service definition :
+```bash
+kubectl get service hostnames -o json/yaml
+```
+
+- Is the Service port in `spec.ports[]`?
+- Is `targetPort` correct for your Pods?
+- Is the port a number (`9376`) or a string (`"9376"`)?
+- For named ports, do Pods expose the same name?
+- Is the protocol correct?
+
+#### 6. Does the service have any EndpointSlices:
+
+Check the endpoint:
+```bash
+#Endpoints should have pod ip addresses
+kubectl get endpointslices -l k8s.io/service-name=hostnames
+
+NAME              ADDRESSTYPE   PORTS   ENDPOINTS
+hostnames-ytpni   IPv4          9376    10.244.0.5,10.244.0.6,10.244.0.7
+```
+#### 7. Are the pods behind service working ?
+
+Double check that pod are running and `wget`the ips in the `endpoint` which are the pod IPs
+
+#### 8. is kube-proxy running
+
+If you've reached this point, your Service is running, EndpointSlices exist, and Pods are serving traffic. Now, the Service proxy (usually `kube-proxy`) is the likely issue. 
+
+##### 8.1. Is kube-proxy running
+
+On your nodes, check the process :
+```bash
+ps auxw | grep kube-proxy
+
+root  4194  0.4  0.1 101864 17696 ?    Sl Jul04  25:43 /usr/local/bin/kube-proxy --master=https://kubernetes-master --kubeconfig=/var/lib/kube-proxy/kubeconfig --v=2
+```
+Check the logs:
+
+```bash
+#or use journactl
+cat /var/log/kube-proxy.log,
+```
+
+**Kube-Proxy Mode**
+
+Check the `kube-proxy` mode (`iptables` or `ipvs`)
+
+- **Iptables mode** 
+
+```bash
+iptables-save | grep hostnames
+-A KUBE-SEP-57KPRZ3JQVENLNBR -s 10.244.3.6/32 -m comment --comment "default/hostnames:" -j MARK --set-xmark 0x00004000/0x00004000
+-A KUBE-SEP-57KPRZ3JQVENLNBR -p tcp -m comment --comment "default/hostnames:" -m tcp -j DNAT --to-destination 10.244.3.6:9376
+-A KUBE-SEP-WNBA2IHDGP2BOBGZ -s 10.244.1.7/32 -m comment --comment "default/hostnames:" -j MARK --set-xmark 0x00004000/0x00004000
+-A KUBE-SEP-WNBA2IHDGP2BOBGZ -p tcp -m comment --comment "default/hostnames:" -m tcp -j DNAT --to-destination 10.244.1.7:9376
+-A KUBE-SEP-X3P2623AGDH6CDF3 -s 10.244.2.3/32 -m comment --comment "default/hostnames:" -j MARK --set-xmark 0x00004000/0x00004000
+-A KUBE-SEP-X3P2623AGDH6CDF3 -p tcp -m comment --comment "default/hostnames:" -m tcp -j DNAT --to-destination 10.244.2.3:9376
+-A KUBE-SERVICES -d 10.0.1.175/32 -p tcp -m comment --comment "default/hostnames: cluster IP" -m tcp --dport 80 -j KUBE-SVC-NWV5X2332I4OT4T3
+-A KUBE-SVC-NWV5X2332I4OT4T3 -m comment --comment "default/hostnames:" -m statistic --mode random --probability 0.33332999982 -j KUBE-SEP-WNBA2IHDGP2BOBGZ
+-A KUBE-SVC-NWV5X2332I4OT4T3 -m comment --comment "default/hostnames:" -m statistic --mode random --probability 0.50000000000 -j KUBE-SEP-X3P2623AGDH6CDF3
+-A KUBE-SVC-NWV5X2332I4OT4T3 -m comment --comment "default/hostnames:" -j KUBE-SEP-57KPRZ3JQVENLNBR
+```
+
+- Each Service port has:
+    - 1 rule in `KUBE-SERVICES`
+    - 1 `KUBE-SVC-<hash>` chain
+- Each Pod endpoint has:
+    - A few rules in its `KUBE-SVC-<hash>` chain
+    - 1 `KUBE-SEP-<hash>` chain with a few rules
+
+> Rules may vary depending on your configuration (e.g., node-ports, load-balancers).
+
+- **ipvs mode**
+
+```bash
+ipvsadm -ln
+Prot LocalAddress:Port Scheduler Flags
+  -> RemoteAddress:Port           Forward Weight ActiveConn InActConn
+...
+TCP  10.0.1.175:80 rr
+  -> 10.244.0.5:9376               Masq    1      0          0
+  -> 10.244.0.6:9376               Masq    1      0          0
+  -> 10.244.0.7:9376               Masq    1      0          0
+...
+```
+
+For each port of every **Service**, including any **NodePorts**, **external IPs**, and **load-balancer IPs**, `kube-proxy` creates a *virtual server*. 
+For each Pod endpoint, it creates corresponding *real servers*: 
+
+- **Service hostname:** `10.0.1.175:80`
+- **Endpoints:**
+    - `10.244.0.5:9376`
+    - `10.244.0.6:9376`
+    - `10.244.0.7:9376`
+
+This means that traffic to the service IP and port is load-balanced across all listed endpoints.
+
+##### 8.2. is Kube-Proxy Proxying ?
+
+If above work, using a node, try accessing your service:
+```bash
+curl 10.0.1.175:80
+hostnames-632524106-bbpiw
+```
+
+If fail, check kube proxy logs:
+Setting endpoints for default/hostnames:default to [10.244.0.5:9376 10.244.0.6:9376 10.244.0.7:9376]
+
+If you dont see this, restart kube-proxy on node, you can restart it on al nodes using:
+```bash
+kubectl rollout restart daemonset kube-proxy -n kube-system
+```
+
+##### 8.3. Edge Case
+
+## Edge Case: Pod Fails to Reach Itself via Service IP
+
+This can occur if the network isn't configured for "hairpin" traffic, especially with kube-proxy in iptables mode and bridge networking. The Kubelet's `--hairpin-mode` flag should be set to `hairpin-veth` or `promiscuous-bridge`.
+
+### Quick Troubleshooting
+
+**Check Kubelet Hairpin Mode**
+```sh
+ps auxw | grep kubelet | grep hairpin-mode
+```
+Look for `--hairpin-mode=hairpin-veth` or `--hairpin-mode=promiscuous-bridge`.
+
+**Verify Effective Hairpin Mode**
+- Check kubelet logs for lines like:
+```sh
+ grep hairpin /var/log/kubelet.log
+```
+Example log:
+```
+Hairpin mode set to "promiscuous-bridge"
+```
+
+**Validate Permissions**
+- For `hairpin-veth`:
+```sh
+for intf in /sys/devices/virtual/net/cbr0/brif/*; do cat $intf/hairpin_mode; done
+```
+Output should be all `1`.
+- For `promiscuous-bridge`:
+```sh
+ifconfig cbr0 | grep PROMISC
+```
+Output should include `PROMISC`.
+
+### Debugging a statefulset
+```bash
+Same as for debugging pod, use kubectl to investigate, look for unknown or terminating pod:
+
+kubectl get pods -l app.kubernetes.io/name=MyApp
+```
+
+### Debugging Init Containers
+
+Check init container status:
+```bash
+#get
+kubectl get pod <pod-name>
+#here 1/2 means 1 init has completed successully 
+NAME         READY     STATUS     RESTARTS   AGE
+<pod-name>   0/1       Init:1/2   0          7s
+```
+
+Describe the pod for more analyses 
+```bash
+kubectl describe pod <pod-name>
+```
+```yaml
+#here we have 2 init container
+Init Containers:
+  <init-container-1>:
+    Container ID:    ...
+    ...
+    State:           Terminated
+      Reason:        Completed
+      Exit Code:     0
+      Started:       ...
+      Finished:      ...
+    Ready:           True
+    Restart Count:   0
+    ...
+  <init-container-2>:
+    Container ID:    ...
+    ...
+    State:           Waiting
+      Reason:        CrashLoopBackOff
+    Last State:      Terminated
+      Reason:        Error
+      Exit Code:     1
+      Started:       ...
+      Finished:      ...
+    Ready:           False
+    Restart Count:   3
+    ...
+```
+
+For quick acccess:
+```bash
+kubectl get pod nginx --template '{{.status.initContainerStatuses}}'
+```
+Access logs:
+```bash
+kubectl logs <pod-name> -c <init-container-2>
+```
+
+**Understanding Pod Status**
+
+the Pod status can provide valuable insights. 
+If the status begins with `Init:`, it summarizes the execution state of the Init Containers. 
+
+| Status                  | Meaning                                                      |
+|-------------------------|--------------------------------------------------------------|
+| `Init:N/M`              | The Pod has **M** Init Containers; **N** have completed.     |
+| `Init:Error`            | An Init Container has failed to execute.                     |
+| `Init:CrashLoopBackOff` | An Init Container has failed repeatedly.                     |
+| `Pending`               | The Pod has not yet begun executing Init Containers.         |
+| `PodInitializing`       | The Pod is initializing (may be running Init Containers).    |
+| `Running`               | All Init Containers have completed; main containers running. |
+
+
+
+### Determine the reason for Pod failure
+
+#### 1. Writing and reading a termination message
+
+Lets create this pod
+```yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: termination-demo
+spec:
+  containers:
+  - name: termination-demo-container
+    image: debian
+    command: ["/bin/sh"]
+    args: ["-c", "sleep 10 && echo Sleep expired > /dev/termination-log"]
+```
+```bash
+kubectl apply -f https://k8s.io/examples/debug/termination.yaml
+```
+
+This container sleep for 10sec then write Sleep expired to the `/dev/termination-log`:
+```bash
+kubectl get pod termination-demo --output=yaml
+```
+```yaml
+apiVersion: v1
+kind: Pod
+...
+    lastState:
+      terminated:
+        containerID: ...
+        exitCode: 0
+        finishedAt: ...
+        message: |
+          Sleep expired          
+        ...
+```
+```sh
+#filter on terminated message
+kubectl get pod termination-demo -o go-template="{{range .status.containerStatuses}}{{.lastState.terminated.message}}{{end}}"
+#if you have multiple containers in one pod and want to discover which is failling
+kubectl get pod multi-container-pod -o go-template='{{range .status.containerStatuses}}{{printf "%s:\n%s\n\n" .name .lastState.terminated.message}}{{end}}'
+#printf ".name:(container name) back to line .LastState.Terminated.message(message) 2x backline
+```
+#### 2. Customizing the termination message
+
+Kubernetes retrieves termination messages from the file specified in the `terminationMessagePath` field (default: `/dev/termination-log`). You can customize this path per container, but not after the Pod is launched.
+
+- **Purpose:** Brief final status (e.g., assertion failure), limited to Per container: 4096 bytes  
+
+**Example:**
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+    name: msg-path-demo
+spec:
+    containers:
+    - name: msg-path-demo-container
+        image: debian
+        terminationMessagePath: "/tmp/my-log"
+```
+
+You can also set `terminationMessagePolicy`:
+- `"File"` (default): Use only the file.
+- `"FallbackToLogsOnError"`: Use last 2048 bytes or 80 lines of logs if the file is empty and the container failed.
+
+
