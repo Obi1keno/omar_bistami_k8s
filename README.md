@@ -9565,3 +9565,778 @@ You can also set `terminationMessagePolicy`:
 
 ![troubleshooting_k8s.png](troubleshooting_k8s.png)
 
+# LOGGING and TROUBLESHOOTING TP
+
+## Important Logs for K8S cluster (systemd)
+
+### Node-Level Services
+
+- **Kubelet** (Service: `kubelet`)
+```bash
+journalctl -u kubelet -xe
+```
+
+- **Container Runtime** (Service: `containerd`)
+```bash
+journalctl -u containerd -xe
+```
+
+- **kube-proxy** (Runs as a Pod (not a systemd service))
+```bash
+kubectl logs -n kube-system -l k8s-app=kube-proxy
+```
+
+### Control Plane (Master Node)
+
+- **kube-apiserver**
+```bash
+kubectl logs -n kube-system kube-apiserver-<node-name>
+```
+
+- **kube-controller-manager**
+```bash
+kubectl logs -n kube-system kube-controller-manager-<node-name>
+```
+
+- **kube-scheduler**
+```bash
+kubectl logs -n kube-system kube-scheduler-<node-name>
+```
+
+- **etcd** (if self-hosted)
+```bash
+kubectl logs -n kube-system etcd-<node-name>
+```
+
+### Network Plugins
+
+- View logs for your CNI plugin (e.g., Calico, Cilium, etc.)
+```bash
+kubectl logs -n kube-system -l k8s-app=calico-node
+```
+### General System Diagnostics
+
+- **dmesg output** (Check kernel-level issues)
+```bash
+dmesg | less
+```
+
+- **Syslog or journal** (Full system logs)
+```bash
+journalctl -xe
+# or
+less /var/log/syslog
+```
+
+- **Pod/container logs**
+```bash
+kubectl logs <pod-name>
+```
+
+## Example Logs on SystemD
+
+Using journalctl on systemd based:
+```bash
+journalctl -u kubelet | less
+```
+
+Use find to search for apiserver log files:
+```bash
+ find / -name "*apiserver*log"
+/var/log/containers/kube-apiserver-cp_kube-system_kube-apiserver-150a2d0bba8e703d6be4ea53c8a41e6ce70e48e30502a793ca7f360ad9386eb9.log
+```
+
+Check the logfile:
+```bash
+less /var/log/containers/kube-apiserver-cp_kube-system_kube-apiserver-150a2d0bba8e703d6be4ea53c8a41e6ce70e48e30502a793ca7f360ad9386eb9.log
+#Output:
+....
+2025-05-03T14:54:00.985842548Z stderr F E0503 14:54:00.985038       1 upgradeaware.go:427] Error proxying data from client to backend: write tcp 10.2.0.2:32916->10.2.0.2:10250: write: broken pipe
+2025-05-03T15:12:02.171621613Z stderr F E0503 15:12:02.171271       1 conn.go:339] Error on socket receive: read tcp 10.2.0.2:6443->10.2.0.2:55500: use of closed network connection
+2025-05-03T15:40:57.303357675Z stderr F E0503 15:40:57.302906       1 wrap.go:53] "Timeout or abort while handling" logger="UnhandledError" method="POST" URI="/apis/tap.linkerd.io/v1alpha1/watch/namespaces/default/pods/myingress-ingress-nginx-controller-99w65/tap" auditID="8d10e257-bf89-4aad-8f13-14b3d462a2c3"
+```
+
+Logs format are : 
+
+**`2025-05-03T10:22:40.204032177Z stderr F [LEVEL][DATE TIME] [PID] [FILE:LINE] MESSAGE`**
+
+Where:
+- `Timestamps`: ISO 8601 format (`2025-05-03T10:22:40.204032177Z`)
+- `stderr F`: Output stream and log severity (F = fatal, E = error, W = warning)
+- `W0503 10:22:40.195311`: [Level][MMDD TIME]
+- `dispatcher.go:210`: File and line number in Go source
+- `MESSAGE`: Human-readable error with context
+
+## Viewing Logs Output
+
+Get pods:
+
+```bash
+kubectl get pod --all-namespaces
+NAMESPACE       NAME                                              READY   STATUS    RESTARTS       AGE
+accounting      nginx-one-55d94d4659-7pfl8                        1/1     Running   0              2d2h
+....
+default         books-5bcf5ccfd7-7zwm7                            1/1     Running   0              2d2h
+default         books-5bcf5ccfd7-bz8pq                            1/1     Running   0              4d2h
+default         myingress-ingress-nginx-controller-99w65          2/2     Running   0              2d2h
+default         myingress-ingress-nginx-controller-mt2dt          2/2     Running   0              5d3h
+...
+default         web-two-64558f4b75-qfzq8                          1/1     Running   0              5d23h
+kube-system     cilium-envoy-2xs9m                                1/1     Running   0              51d
+kube-system     cilium-envoy-k2qdh                                1/1     Running   0              50d
+kube-system     cilium-h9s45                                      1/1     Running   0              51d
+kube-system     cilium-operator-5c7867ccd5-24jvr                  1/1     Running   2 (45d ago)    45d
+kube-system     cilium-operator-5c7867ccd5-jghsj                  1/1     Running   0              44d
+...
+linkerd-viz     metrics-api-86bff98cbc-slrtd                      2/2     Running   0              45h
+linkerd-viz     prometheus-7ff979ffd9-5zkf6                       2/2     Running   0              2d2h
+linkerd-viz     tap-5b55c9bb76-6c8r5                              2/2     Running   1 (6d3h ago)   6d3h
+...
+linkerd-viz     web-755b796446-jvpjn                              2/2     Running   0              6d2h
+linkerd         linkerd-destination-5477b7b488-72bxz              4/4     Running   0              45h
+linkerd         linkerd-identity-868c8bbdc4-tgwg7                 2/2     Running   0              45h
+..
+nginx-gateway   nginx-gateway-96f76cdcf-tlgmc                     2/2     Running   0              4d15h
+```
+
+Get logs for kube-controller:
+```bash
+kubectl -n kube-system logs kube-controller-manager-cp | less
+...
+fault/netshoot-64576c6b7d" duration="14.282435ms"
+I0505 12:07:33.451224       1 replica_set.go:679] "Finished syncing" logger="replicaset-controller" kind="ReplicaSet" key="default/netshoot-64576c6b7d" duration="97.655µs"
+I0505 12:42:36.418465       1 range_allocator.go:247] "Successfully synced" logger="node-ipam-controller" key="cp"
+I0505 12:47:08.755069       1 range_allocator.go:247] "Successfully synced" logger="node-ipam-controller" key="dp"
+I0505 12:47:42.367773       1 range_allocator.go:247] "Successfully synced" logger="node-ipam-controller" key="cp"
+....
+```
+
+
+# Monitoring and logging Stack
+
+Setting up a comprehensive monitoring and logging stack on your Kubernetes cluster involves installing the following components:
+
+- **Metrics Server**: Collects resource metrics from Kubelets and exposes them via the Kubernetes API.
+- **Fluentd**: Aggregates and forwards logs from various sources.
+- **Prometheus**: Monitors and stores metrics data.
+- **Grafana**: Visualizes metrics data through dashboards.
+
+## METRICS SERVER
+
+The Kubernetes Metrics Server is a cluster-wide aggregator of resource usage data, such as CPU and memory. It operates by:
+
+- **Scraping metrics** from the Kubelet on each node.
+- **Aggregating data** and exposing it via the Kubernetes API.
+- **Enabling autoscaling** by supplying metrics to components like the Horizontal Pod Autoscaler (HPA).
+
+> **Note:** The Metrics Server does **not** store long-term data; it is designed for real-time resource monitoring only.
+
+
+To install the metrics-server:
+```bash
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+serviceaccount/metrics-server created
+clusterrole.rbac.authorization.k8s.io/system:aggregated-metrics-reader created
+clusterrole.rbac.authorization.k8s.io/system:metrics-server created
+rolebinding.rbac.authorization.k8s.io/metrics-server-auth-reader created
+clusterrolebinding.rbac.authorization.k8s.io/metrics-server:system:auth-delegator created
+clusterrolebinding.rbac.authorization.k8s.io/system:metrics-server created
+service/metrics-server created
+deployment.apps/metrics-server created
+apiservice.apiregistration.k8s.io/v1beta1.metrics.k8s.io created
+```
+
+When checking, pod will stay at pending, we need to override pod to run insecure TLS
+```bash
+kubectl -n kube-system edit deployments.apps  metrics-server
+```
+```yaml
+    spec:
+      containers:
+      - args:
+        - --cert-dir=/tmp
+        - --secure-port=10250
+        - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
+        - --kubelet-use-node-status-port
+        - --metric-resolution=15s
+        - --kubelet-insecure-tls
+```
+
+Check installation:
+```bash
+kubectl -n kube-system get deploy,rs,pod,svc,ep | grep -e metric -e NAME
+NAME                              READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/metrics-server    1/1     1            1           26m
+NAME                                         DESIRED   CURRENT   READY   AGE
+replicaset.apps/metrics-server-6f7dd4c4c4    0         0         0       26m
+replicaset.apps/metrics-server-8467fcc7b7    1         1         1       18m
+NAME                                   READY   STATUS    RESTARTS      AGE
+pod/metrics-server-8467fcc7b7-q9zcc    1/1     Running   0             18m
+NAME                     TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                  AGE
+service/metrics-server   ClusterIP   10.98.101.85    <none>        443/TCP                  26m
+NAME                       ENDPOINTS                                                        AGE
+endpoints/metrics-server   192.168.1.98:10250                                               26m
+```
+
+It takes up to 5 minutes for metrics-server to collect data and populate, lets check:
+```bash
+sleep 120; kubectl top pod --all-namespaces
+NAMESPACE       NAME                                              CPU(cores)   MEMORY(bytes)
+...
+default         books-5bcf5ccfd7-7zwm7                            0m           3Mi
+default         books-5bcf5ccfd7-bz8pq                            0m           3Mi
+default         myingress-ingress-nginx-controller-99w65          3m           46Mi
+default         myingress-ingress-nginx-controller-mt2dt          3m           48Mi
+default         netshoot-64576c6b7d-996gm                         0m           0Mi
+default         nfs-subdir-external-provisioner-d4c865f58-4vf5f   2m           9Mi
+default         nginx-5869d7778c-p79gx                            0m           2Mi
+default         web-one-8d48dcf57-dm2rr                           0m           4Mi
+default         web-two-64558f4b75-qfzq8                          0m           7Mi
+kube-system     cilium-envoy-2xs9m                                4m           13Mi
+kube-system     cilium-envoy-k2qdh                                4m           13Mi
+kube-system     cilium-h9s45                                      37m          163Mi
+kube-system     cilium-operator-5c7867ccd5-24jvr                  6m           44Mi
+kube-system     cilium-operator-5c7867ccd5-jghsj                  2m           37Mi
+kube-system     cilium-xlngl                                      38m          165Mi
+kube-system     coredns-7c65d6cfc9-fpkpr                          3m           17Mi
+kube-system     coredns-7c65d6cfc9-fxt75                          3m           20Mi
+kube-system     etcd-cp                                           51m          69Mi
+kube-system     kube-apiserver-cp                                 105m         502Mi
+kube-system     kube-controller-manager-cp                        27m          80Mi
+kube-system     kube-proxy-hx2xw                                  1m           21Mi
+kube-system     kube-proxy-kv9ww                                  1m           17Mi
+kube-system     kube-scheduler-cp                                 13m          37Mi
+kube-system     metrics-server-8467fcc7b7-q9zcc                   6m           17Mi
+linkerd         linkerd-destination-5477b7b488-72bxz              9m           58Mi
+linkerd         linkerd-identity-868c8bbdc4-tgwg7                 2m           19Mi
+linkerd         linkerd-proxy-injector-9d4bbf576-4t2tr            3m           22Mi
+linkerd-viz     metrics-api-86bff98cbc-slrtd                      3m           43Mi
+linkerd-viz     prometheus-7ff979ffd9-5zkf6                       26m          141Mi
+linkerd-viz     tap-5b55c9bb76-6c8r5                              4m           33Mi
+linkerd-viz     tap-injector-f67944698-mbbmh                      2m           20Mi
+linkerd-viz     web-755b796446-jvpjn                              3m           30Mi
+nginx-gateway   nginx-gateway-96f76cdcf-tlgmc                     8m           32Mi
+```
+
+We can also check nodes:
+```bash
+kubectl top nodes
+NAME   CPU(cores)   CPU(%)   MEMORY(bytes)   MEMORY(%)
+cp     448m         22%      3571Mi          45%
+dp     167m         8%       1762Mi          22%
+```
+or use certificates generated in TPs earlier to curl:
+```bash
+curl --cert /home/omarbistami/client.pem --key /home/omarbistami/client-key.pem --cacert /home/omarbistami/ca.pem https://k8scp:6443/apis/metrics.k8s.io/v1beta1/nodes
+```
+```json
+{
+  "kind": "NodeMetricsList",
+  "apiVersion": "metrics.k8s.io/v1beta1",
+  "metadata": {},
+  "items": [
+    {
+      "metadata": {
+        "name": "cp",
+        "creationTimestamp": "2025-05-05T14:09:11Z",
+        "labels": {
+          "beta.kubernetes.io/arch": "amd64",
+          "beta.kubernetes.io/os": "linux",
+          "kubernetes.io/arch": "amd64",
+          "kubernetes.io/hostname": "cp",
+          "kubernetes.io/os": "linux",
+          "node-role.kubernetes.io/control-plane": "",
+          "node.kubernetes.io/exclude-from-external-load-balancers": "",
+          "status": "vip"
+        }
+      },
+      "timestamp": "2025-05-05T14:09:06Z",
+      "window": "20.374s",
+      "usage": {
+        "cpu": "438169158n",
+        "memory": "3638648Ki"
+      }
+    },
+    {
+      "metadata": {
+        "name": "dp",
+        "creationTimestamp": "2025-05-05T14:09:11Z",
+        "labels": {
+          "beta.kubernetes.io/arch": "amd64",
+          "beta.kubernetes.io/os": "linux",
+          "kubernetes.io/arch": "amd64",
+          "kubernetes.io/hostname": "dp",
+          "kubernetes.io/os": "linux",
+          "status": "other",
+          "system": "secondOne"
+        }
+      },
+      "timestamp": "2025-05-05T14:09:02Z",
+      "window": "10.133s",
+      "usage": {
+        "cpu": "190665665n",
+        "memory": "1804872Ki"
+      }
+    }
+  ]
+}
+```
+
+## ACTIVATE KUBE DASHBOARD
+
+To install kube dhasboard ui:
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+```
+
+Using the one in our LAB-TP
+```bash
+cp /home/omarbistami/LFCourse/LFS258/SOLUTIONS/s_13/dashboard.yaml .
+kubectl apply -f dashboard.yaml
+
+namespace/kubernetes-dashboard created
+serviceaccount/kubernetes-dashboard created
+service/kubernetes-dashboard created
+secret/kubernetes-dashboard-certs created
+secret/kubernetes-dashboard-csrf created
+secret/kubernetes-dashboard-key-holder created
+configmap/kubernetes-dashboard-settings created
+role.rbac.authorization.k8s.io/kubernetes-dashboard created
+clusterrole.rbac.authorization.k8s.io/kubernetes-dashboard created
+rolebinding.rbac.authorization.k8s.io/kubernetes-dashboard created
+clusterrolebinding.rbac.authorization.k8s.io/kubernetes-dashboard created
+deployment.apps/kubernetes-dashboard created
+service/dashboard-metrics-scraper created
+deployment.apps/dashboard-metrics-scraper created
+#check if everything is created; get service account, deploy replicaset, pod and svc
+kubectl -n kubernetes-dashboard get sa,deploy,rs,pod,svc
+NAME                                  SECRETS   AGE
+serviceaccount/default                0         116m
+serviceaccount/kubernetes-dashboard   0         116m
+
+NAME                                        READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/dashboard-metrics-scraper   1/1     1            1           116m
+deployment.apps/kubernetes-dashboard        1/1     1            1           116m
+
+NAME                                                   DESIRED   CURRENT   READY   AGE
+replicaset.apps/dashboard-metrics-scraper-5bd45c9dd6   1         1         1       116m
+replicaset.apps/kubernetes-dashboard-79cbcf9fb6        1         1         1       116m
+
+NAME                                             READY   STATUS    RESTARTS   AGE
+pod/dashboard-metrics-scraper-5bd45c9dd6-k49zl   1/1     Running   0          116m
+pod/kubernetes-dashboard-79cbcf9fb6-7cswc        1/1     Running   0          116m
+
+NAME                                TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)         AGE
+service/dashboard-metrics-scraper   ClusterIP   10.108.250.210   <none>        8000/TCP        116m
+service/kubernetes-dashboard        NodePort    10.106.100.207   <none>        443:31117/TCP   116m
+```
+
+Granting the Dashboard full admin rights is insecure for production, but useful for demos.
+List service accounts:
+
+```bash
+#get service account
+kubectl get sa -n kubernetes-dashboard
+
+NAME                    SECRETS   AGE
+default                 0         4m25s
+kubernetes-dashboard    0         4m25s
+```
+
+To grant the Dashboard admin privileges, create a `ClusterRoleBinding`:
+
+```bash
+#create cluster role binding
+kubectl create clusterrolebinding dashaccess --clusterrole=cluster-admin --serviceaccount=kubernetes-dashboard:ku                                                                                                                                 bernetes-dashboard
+clusterrolebinding.rbac.authorization.k8s.io/dashaccess created
+#check if rolebinding created:
+kubectl -n kubernetes-dashboard get sa,clusterrolebinding  | grep -e NAME -e dashboard -e dashaccess
+NAME                                  SECRETS   AGE
+serviceaccount/kubernetes-dashboard   0         121m
+NAME                                                                                                         ROLE                                                                               AGE
+clusterrolebinding.rbac.authorization.k8s.io/dashaccess                                                      ClusterRole/cluster-admin                                                          60s
+clusterrolebinding.rbac.authorization.k8s.io/kubernetes-dashboard                                            ClusterRole/kubernetes-dashboard                                                   121m
+```
+
+Now we can access through navigator and nodeport:
+
+https://34.155.199.133:31117/
+
+![dashboard](dashboardimage.png)
+
+Lets generate a token
+```bash
+kubectl create token kubernetes-dashboard -n kubernetes-dashboard
+....(token)
+```
+
+![dashboard_access](dashboard11.png)
+
+## Install elasticsearch and fluentd
+
+**clean disk space on node quick actions**
+
+Before installing lets do some cleaning:
+```bash
+#check machine space
+df -h
+
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/root        20G   14G  5.4G  73% /
+#check journalctl disk usage
+journalctl --disk-usage
+
+Archived and active journals take up 1008.0M in the file system.
+#clean journalctl
+journalctl --vacuum-size=100M
+
+Vacuuming done, freed 0B of archived journals from /run/log/journal.
+#clean apt cache
+apt clean
+sudo rm -rf /var/lib/apt/lists/*
+```
+
+**Deeper cleaning**
+
+Check disk on machine starting root ( / )
+
+```bash
+du -sh /* 2>/dev/null | sort -hr
+9.3G    /var
+5.1G    /snap
+4.4G    /run
+2.5G    /usr
+1.6G    /root
+```
+
+check /var for the biggest offenders
+
+```bash
+du -h --max-depth=2 /var | sort -hr | head -20
+9.3G    /var
+8.9G    /var/lib
+4.3G    /var/lib/containerd
+4.0G    /var/lib/snapd
+383M    /var/lib/etcd
+238M    /var/lib/apt
+213M    /var/cache
+197M    /var/cache/apt
+177M    /var/log
+121M    /var/log/journal
+```
+
+Clean unsed image with :
+```bash
+crictl rmi --prune #--prune, -q  Remove all unused images (default: false)
+```
+
+Delete all stopped containers:
+```bash
+crictl rm $(sudo crictl ps -a -q)
+```
+
+Delete all unsed pods
+```bash
+crictl rmp $(sudo crictl pods -a -q)
+```
+
+To force prune/delete all:
+```bash
+crictl rmi $(sudo crictl images -q)
+>This removes all images, even if they're in use. Kubernetes will re-pull needed ones, but this could temporarily disrupt running workloads.
+```
+
+Delete all stopped containers:
+```bash
+sudo crictl rm $(sudo crictl ps -a -q)
+```
+
+Deletes all unused containerd images to free disk space. Use with caution.
+```bash
+ctr image prune --all
+```
+
+**snap cleanup**
+
+Snap package manager daemon and snapd is the daemon (background service) that manages Snap packages on your system.
+
+```bash
+# clean cache
+rm -rf /var/lib/snapd/cache/*
+# Show installed snap versions
+snap list --all
+snap list --all
+Name              Version         Rev    Tracking         Publisher          Notes
+core20            20241206        2496   latest/stable    canonical✓         base,disabled
+core20            20250213        2501   latest/stable    canonical✓         base
+core22            20250315        1908   latest/stable    canonical✓         base,disabled
+core22            20250408        1963   latest/stable    canonical✓         base
+google-cloud-cli  519.0.0         326    latest/stable/…  google-cloud-sdk✓  disabled,classic
+google-cloud-cli  520.0.0         328    latest/stable/…  google-cloud-sdk✓  classic
+lxd               4.0.10-e664786  29619  4.0/stable/…     canonical✓         disabled
+lxd               4.0.10-d342340  32662  4.0/stable/…     canonical✓         -
+snapd             2.67.1          23771  latest/stable    canonical✓         snapd,disabled
+snapd             2.68.4          24505  latest/stable    canonical✓         snapd
+yq                v4.44.5         2634   latest/stable    mikefarah          -
+
+# Remove old snap versions, for example for core 20 you can remove older version 2496
+sudo snap remove <package> --revision <old_revision>
+snap remove core20 --revision=2496
+
+# check mounted snap
+mount | grep "/snap/"
+/var/lib/snapd/snaps/lxd_32662.snap on /snap/lxd/32662 type squashfs (ro,nodev,relatime,errors=continue,x-gdu.hide)
+/var/lib/snapd/snaps/core20_2501.snap on /snap/core20/2501 type squashfs (ro,nodev,relatime,errors=continue,x-gdu.hide)
+/var/lib/snapd/snaps/snapd_24505.snap on /snap/snapd/24505 type squashfs (ro,nodev,relatime,errors=continue,x-gdu.hide)
+/var/lib/snapd/snaps/core22_1963.snap on /snap/core22/1963 type squashfs (ro,nodev,relatime,errors=continue,x-gdu.hide)
+/var/lib/snapd/snaps/yq_2634.snap on /snap/yq/2634 type squashfs (ro,nodev,relatime,errors=continue,x-gdu.hide)
+/var/lib/snapd/snaps/google-cloud-cli_328.snap on /snap/google-cloud-cli/328 type squashfs (ro,nodev,relatime,errors=continue,x-gdu.hide)
+# verify it is used, compare it to :
+ls -lrta /var/lib/snapd/snaps/
+total 713788
+drwxr-xr-x  2 root root      4096 Oct 11  2024 partial
+-rw-------  2 root root  96354304 Mar 11 01:40 lxd_32662.snap
+-rw-------  2 root root  66850816 Apr 15 19:50 core20_2501.snap
+-rw-------  2 root root  53366784 Apr 30 05:36 snapd_24505.snap
+-rw-------  2 root root  77479936 Apr 30 23:11 core22_1963.snap
+-rw-------  2 root root   7340032 May  1 11:48 yq_2634.snap
+-rw-------  2 root root 429506560 May  2 16:16 google-cloud-cli_328.snap
+```
+
+**Cleaning Summary**
+
+| Step | What it cleans             | Command Example                         |
+| ---- | -------------------------- | --------------------------------------- |
+| 1    | Find space hogs            | `du -h --max-depth=2 /var`              |
+| 2    | Unused images              | `crictl rmi --prune`                    |
+| 3    | Exited containers and pods | `crictl rm $(...) && crictl rmp $(...)` |
+| 4    | Orphaned overlay snapshots | `ctr snapshots prune`                   |
+| 5    | Orphaned volumes & logs    | `find /var/log/pods -name "*.log"`      |
+| 6    | Journal logs               | `journalctl --vacuum-size=100M`         |
+
+
+---
+
+### elastic search
+#TODO 
+#TODO 
+#TODO 
+
+Usefull for Full-text search and Kibana dashboards with Powerful indexing and querying
+Lets install it using helm
+
+```bash
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+...Successfully got an update from the "bitnami" chart repository
+Update Complete. ⎈Happy Helming!⎈
+```
+
+Lets install elasticseach but with minimal replicas, resources, cpu and memory for each compenent.
+```bash
+helm install elasticsearch bitnami/elasticsearch \
+  --namespace logging --create-namespace \
+  --set master.replicaCount=1 \
+  --set data.replicaCount=1 \
+  --set coordinating.replicaCount=1 \
+  --set ingest.replicaCount=1 \
+  --set master.resources.requests.cpu=200m \
+  --set master.resources.requests.memory=512Mi \
+  --set data.resources.requests.cpu=500m \
+  --set data.resources.requests.memory=1Gi \
+  --set coordinating.resources.requests.cpu=150m \
+  --set coordinating.resources.requests.memory=256Mi \
+  --set ingest.resources.requests.cpu=150m \
+  --set ingest.resources.requests.memory=256Mi \
+  --set master.persistence.enabled=false \
+  --set data.persistence.enabled=false \
+  --set coordinating.persistence.enabled=false \
+  --set ingest.persistence.enabled=false \
+  --set volumePermissions.enabled=true
+
+helm install elasticsearch elastic/elasticsearch \
+  --namespace logging \
+  --set replicas=1 \
+  --set master.replicaCount=1 \
+  --set data.replicaCount=1 \
+  --set coordinating.replicaCount=1 \
+  --set ingest.replicaCount=1 \
+  --set resources.requests.cpu="300m" \
+  --set resources.requests.memory="256Mi" \
+  --set resources.limits.cpu="500m" \
+  --set resources.limits.memory="1Gi" \
+  --set master.persistence.enabled=false \
+  --set data.persistence.enabled=false \
+  --set coordinating.persistence.enabled=false \
+  --set ingest.persistence.enabled=false \
+  --set volumePermissions.enabled=true \
+  --set antiAffinity="soft"
+
+
+NAME: elasticsearch
+LAST DEPLOYED: Tue May  6 08:14:42 2025
+NAMESPACE: logging
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+CHART NAME: elasticsearch
+CHART VERSION: 22.0.1
+APP VERSION: 9.0.0
+
+ WARNING
+
+    Elasticsearch requires some changes in the kernel of the host machine to
+    work as expected. If those values are not set in the underlying operating
+    system, the ES containers fail to boot with ERROR messages.
+
+    More information about these requirements can be found in the links below:
+
+      https://www.elastic.co/guide/en/elasticsearch/reference/current/file-descriptors.html
+      https://www.elastic.co/guide/en/elasticsearch/reference/current/vm-max-map-count.html
+
+    This chart uses a privileged initContainer to change those settings in the Kernel
+    by running: sysctl -w vm.max_map_count=262144 && sysctl -w fs.file-max=65536
+
+** Please be patient while the chart is being deployed **
+
+  Elasticsearch can be accessed within the cluster on port 9200 at elasticsearch.logging.svc.cluster.local
+
+  To access from outside the cluster execute the following commands:
+
+    kubectl port-forward --namespace logging svc/elasticsearch 9200:9200 &
+    curl http://127.0.0.1:9200/
+
+
+WARNING: There are "resources" sections in the chart not set. Using "resourcesPreset" is not recommended for production. For production installations, please set the following values according to your workload needs:
+  - copyTlsCerts.resources
+  - sysctlImage.resources
+  - volumePermissions.resources
++info https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+```
+
+Check that everything is runing smoothly:
+```bash
+kubectl -n logging get pods,svc
+NAME                               READY   STATUS    RESTARTS      AGE
+pod/elasticsearch-coordinating-0   1/1     Running   3 (46m ago)   59m
+pod/elasticsearch-data-0           1/1     Running   2 (50m ago)   59m
+pod/elasticsearch-ingest-0         1/1     Running   3 (46m ago)   59m
+pod/elasticsearch-master-0         1/1     Running   2 (50m ago)   59m
+
+NAME                                    TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)                         AGE
+service/elasticsearch                   NodePort    10.105.54.2   <none>        9200:32481/TCP,9300:31295/TCP   59m
+service/elasticsearch-coordinating-hl   ClusterIP   None          <none>        9200/TCP,9300/TCP               59m
+service/elasticsearch-data-hl           ClusterIP   None          <none>        9200/TCP,9300/TCP               59m
+service/elasticsearch-ingest-hl         ClusterIP   None          <none>        9200/TCP,9300/TCP               59m
+service/elasticsearch-master-hl         ClusterIP   None          <none>        9200/TCP,9300/TCP               59m
+```
+
+We can access the service by using nport-forward and curling from local machine to localhost:port (ephemeral with shell session):
+```bash
+kubectl port-forward --namespace logging svc/elasticsearch 9200:9200 &
+curl http://127.0.0.1:9200/
+```
+
+In my case i will set it as nodeport :
+```bash
+kubectl -n logging patch svc elasticsearch -p '{"spec": {"type": "NodePort"}}'
+service/elasticsearch patched
+kubectl -n logging get svc
+NAME                            TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)                         AGE
+elasticsearch                   NodePort    10.105.54.2   <none>        9200:32481/TCP,9300:31295/TCP   51m
+```
+and access it from browser:
+
+http://34.155.199.133:32481/
+
+![elasticsearch](elasticsearch.png)
+
+
+
+### kibana
+#TODO 
+#TODO 
+#TODO 
+
+
+### fluentd
+#TODO 
+#TODO 
+#TODO 
+
+We’ll use Fluent Bit (lightweight version of Fluentd), which is commonly used in K8s and supports the same Fluentd ecosystem and install it as a `Daemonset` using `helm`
+
+```bash
+#using `helm`
+helm repo add fluent https://fluent.github.io/helm-charts
+"fluent" has been added to your repositories
+#helm repo update
+helm repo update
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "fluent" chart repository
+Update Complete. ⎈Happy Helming!⎈
+```
+
+Lets now install Fluentb by overriding some variable and plug it to elasticsearch
+
+```bash
+helm install fluent-bit fluent/fluent-bit \
+  --namespace logging --create-namespace \
+  --set daemonset.enabled=true \
+  --set backend.type=es \
+  --set backend.es.host=34.155.199.133 \
+  --set backend.es.port=32481 \
+  --set backend.es.logstash_prefix=fluentbit \
+  --set backend.es.time_key_format="%Y-%m-%dT%H:%M:%S" \
+  --set rbac.create=true \
+  --set serviceAccount.create=true \
+  --set tolerations[0].operator="Exists" \
+  --set resources.limits.cpu="200m" \
+  --set resources.limits.memory="256Mi" \
+  --set resources.requests.cpu="100m" \
+  --set resources.requests.memory="128Mi" \
+  --set backend.es.ssl=false
+
+
+helm install fluent-bit fluent/fluent-bit \
+  --namespace logging --create-namespace \
+  --set daemonset.enabled=true \
+  --set backend.type=es \
+  --set backend.es.host=elasticsearch.logging.svc.cluster.local \
+  --set backend.es.port=9200 \
+  --set backend.es.ssl=false \
+  --set backend.es.logstash_prefix=fluentbit \
+  --set backend.es.time_key_format="%Y-%m-%dT%H:%M:%S" \
+  --set output.elasticsearch.scheme="http" \
+  --set rbac.create=true \
+  --set serviceAccount.create=true \
+  --set resources.limits.cpu="200m" \
+  --set resources.limits.memory="256Mi" \
+  --set resources.requests.cpu="100m" \
+  --set resources.requests.memory="128Mi" 
+
+NAME: fluent-bit
+LAST DEPLOYED: Tue May  6 09:20:05 2025
+NAMESPACE: logging
+STATUS: deployed
+REVISION: 1
+NOTES:
+Get Fluent Bit build information by running these commands:
+
+export POD_NAME=$(kubectl get pods --namespace logging -l "app.kubernetes.io/name=fluent-bit,app.kubernetes.io/instance=fluent-bit" -o jsonpath="{.items[0].metadata.name}")
+kubectl --namespace logging port-forward $POD_NAME 2020:2020
+curl http://127.0.0.1:2020
+```
+
+
+### grafana
+#TODO 
+#TODO 
+#TODO 
+#TODO 
+#TODO 
+#TODO 
+
+---
+
